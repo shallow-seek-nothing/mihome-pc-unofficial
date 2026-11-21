@@ -43,13 +43,25 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 
 ## 下载与安装
 
-产物在 `dist/`（每个版本三件）：
+**最新版从这里下载** —— [Releases · v0.7.36](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.36)
 
-* `mihome-pc-VERSION-portable-win64.zip` —— **Windows 绿色版**：解压后双击 `mihome.vbs`；
-  目录里带 `使用须知.txt`。
-* `mihome-pc-VERSION-win64/install.ps1` —— **Windows 安装版**：装到 `%LOCALAPPDATA%\Programs\MiHomePC`，
-  自动在桌面放快捷方式；`install.ps1 -Quiet` 供脚本静默安装。
-* `mihome-pc_VERSION_all.deb` / `mihome-pc-VERSION-linux.tar.gz` —— **Linux**：`sudo dpkg -i` 或用 tar.gz 直接跑。
+| 平台 | 文件 | 怎么用 |
+|---|---|---|
+| **Windows** | `mihome-pc-0.7.36-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
+| Linux | 暂无（等 Windows 反馈稳定后单独发） | 之后是 `.deb` 与 `.tar.gz` 两种 |
+
+> 绿色版内置 Python 3.8，**解压即用**；当前是 **0.7.x Beta**，标记为预发布。
+
+### 从源码跑
+
+```powershell
+git clone https://github.com/shallow-seek-nothing/mihome-pc-unofficial.git
+cd mihome-pc-unofficial
+python -m mihome_pc serve        # 未登录时是演示数据
+```
+
+只需要 Python 3.8+，**没有任何第三方依赖**。
 
 运行时会在右下角（Linux 在系统托盘）出现米家图标：左键打开界面，**右键可打开数据目录 / 退出**。
 
