@@ -1,0 +1,27 @@
+[tool.ruff]
+# The product must run on the embedded Python 3.8.10 we ship for Windows 7.
+target-version = "py38"
+line-length = 100
+exclude = ["reverse", "mihome_pc/assets", ".git", "__pycache__", "out", "dist"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "UP",   # pyupgrade (bounded by target-version = py38)
+    "B",    # flake8-bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+]
+ignore = [
+    "E731",   # lambda assignment - fine for small shims
+    "SIM108", # ternary vs if: readability call
+    "UP031",  # %-formatting is a deliberate house style (also used in error strings)
+    "B904",   # we wrap into CloudError/SignError deliberately, chaining not required
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+# Tools bootstrap sys.path before importing the package on purpose.
+"tools/*" = ["E501", "E402"]

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>米家</title>
+<link rel="icon" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/style.css">
+<script>
+  // 主题要在首帧前定好，避免闪白
+  (function () {
+    var fromUrl = /[?&]theme=(dark|light)/.exec(window.location.search);
+    if (fromUrl) {
+      document.documentElement.setAttribute("data-theme", fromUrl[1]);
+      return;
+    }
+    var saved = null;
+    try { saved = window.localStorage.getItem("mihome-theme"); } catch (e) {}
+    if (!saved) {
+      saved = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", saved);
+  })();
+</script>
+</head>
+<body>
+<div class="app">
+  <!-- 左侧导航：桌面版固定，窄窗口折叠成顶栏 -->
+  <aside class="sidebar">
+    <div class="side-brand">
+      <img class="logo" src="/static/logo.png" alt="米家">
+      <div class="side-brand-text">
+        <b>米家</b>
+        <span id="home-name">—</span>
+      </div>
+    </div>
+    <nav class="side-nav" id="side-nav">
+      <button class="nav-item active" type="button" data-nav="home">
+        <span class="nav-dot"></span>全部设备
+        <span class="nav-count" id="nav-device-count">0</span>
+      </button>
+      <button class="nav-item" type="button" data-nav="scenes">
+        <span class="nav-dot"></span>场景
+        <span class="nav-count" id="nav-scene-count">0</span>
+      </button>
+      <button class="nav-item" type="button" data-nav="messages">
+        <span class="nav-dot"></span>消息
+        <span class="nav-count" id="nav-message-count">0</span>
+      </button>
+      <button class="nav-item" type="button" data-nav="status">
+        <span class="nav-dot"></span>运行状态
+        <span class="nav-count" id="nav-status-count">0</span>
+      </button>
+      <button class="nav-item" type="button" data-nav="account">
+        <span class="nav-dot"></span>账号与同步
+      </button>
+    </nav>
+    <div class="side-foot">
+      <span id="status-pill" class="pill">连接中…</span>
+      <div class="side-foot-row">
+        <button id="theme-btn" class="dn-toggle" type="button" title="明暗切换" aria-label="明暗切换">
+          <span class="dn-track">
+            <span class="dn-clouds">
+              <span class="dn-cloud"></span><span class="dn-cloud"></span><span class="dn-cloud"></span>
+            </span>
+            <span class="dn-stars">
+              <span class="dn-star"></span><span class="dn-star"></span><span class="dn-star"></span>
+            </span>
+            <span class="dn-knob">
+              <span class="dn-crater"></span><span class="dn-crater"></span><span class="dn-crater"></span>
+            </span>
+          </span>
+        </button>
+        <button id="login-btn" class="ghost small" hidden>扫码登录</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="page">
+    <header class="page-head" id="page-head">
+      <div class="page-title-wrap">
+        <h1 id="page-title">全部设备</h1>
+        <p id="page-sub" class="meta">—</p>
+      </div>
+      <div class="page-tools">
+        <input id="search-input" class="search" type="search" placeholder="搜索设备 / 房间" autocomplete="off">
+        <button id="status-btn" class="status-btn" type="button" hidden>
+          <span class="status-dot"></span>
+          <span id="status-btn-text">0</span>
+        </button>
+        <button id="message-read-btn" class="ghost small" type="button" hidden>全部标为已读</button>
+        <button id="new-scene-btn" class="ghost small" type="button" hidden>新建场景</button>
+        <button id="new-timer-btn" class="ghost small" type="button" hidden>新建定时</button>
+        <button id="refresh-btn" class="ghost small" type="button">刷新</button>
+      </div>
+    </header>
+
+    <!-- 首页：房间筛选 + 设备卡片 -->
+    <section id="home-view">
+      <div class="rooms" id="room-chips"></div>
+      <div class="grid" id="device-grid"></div>
+      <p id="empty-hint" class="hint" hidden>没有设备</p>
+    </section>
+
+    <!-- 场景：一键执行 -->
+    <section id="scenes-view" hidden>
+      <div class="grid scene-grid" id="scene-grid"></div>
+      <p id="scene-empty" class="hint" hidden>没有场景</p>
+      <p id="scene-note" class="hint" hidden></p>
+      <div class="group automation-card" id="automation-list" hidden></div>
+    </section>
+
+    <!-- 消息中心 -->
+    <section id="messages-view" hidden>
+      <div class="rooms" id="message-types" hidden></div>
+      <div class="group message-list" id="message-list"></div>
+      <p id="message-empty" class="hint" hidden>没有消息</p>
+    </section>
+
+    <!-- 设备详情：左控制 / 右状态 -->
+    <section id="detail-view" hidden>
+      <header class="detail-fixed" id="detail-fixed">
+        <div class="detail-bar">
+          <button id="back-btn" class="ghost small">← 返回</button>
+          <span id="detail-breadcrumb" class="meta"></span>
+          <label class="toggle-line">
+            <input type="checkbox" id="readonly-toggle"> 隐藏只读状态
+          </label>
+        </div>
+        <div class="device-head">
+          <img id="device-icon" class="device-icon" alt="" hidden>
+          <div class="device-head-text">
+            <h1 id="device-name">—</h1>
+            <p id="device-meta" class="meta">—</p>
+          </div>
+          <span id="device-online" class="pill small">—</span>
+        </div>
+      </header>
+      <div id="blocked-note" class="notice" hidden></div>
+      <div class="detail-grid">
+        <div id="groups" class="detail-main"></div>
+        <aside id="detail-side" class="detail-side"></aside>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="status-modal" class="modal" hidden>
+  <div class="modal-box status-box">
+    <h3>设备状态</h3>
+    <p class="meta" id="status-sub">—</p>
+    <div id="status-body" class="status-body"></div>
+    <button id="close-status" class="ghost">关闭</button>
+  </div>
+</div>
+
+<div id="account-modal" class="modal" hidden>
+  <div class="modal-box">
+    <h3>账号与同步</h3>
+    <div id="account-body" class="status-body"></div>
+    <button id="close-account" class="ghost">关闭</button>
+  </div>
+</div>
+
+<div id="timer-modal" class="modal" hidden>
+  <div class="modal-box timer-box">
+    <h3 id="timer-title">新建定时</h3>
+    <label class="field"><span>设备</span><select id="timer-device"></select></label>
+    <label class="field"><span>做什么</span><select id="timer-target"></select></label>
+    <label class="field" id="timer-value-row" hidden><span>设成</span><select id="timer-value"></select></label>
+    <label class="field" id="timer-time-row"><span>时间</span><input id="timer-time" type="time" value="08:00"></label>
+    <label class="field" id="timer-repeat-row"><span>重复</span><select id="timer-repeat">
+      <option value="daily">每天</option>
+      <option value="workday">法定工作日</option>
+      <option value="holiday">法定节假日</option>
+      <option value="weekly">每周（选周几）</option>
+    </select></label>
+    <div class="field" id="timer-days-row" hidden>
+      <span>周几</span>
+      <div class="weekday-picker" id="timer-days"></div>
+    </div>
+    <label class="field"><span>名称</span><input id="timer-name" type="text" placeholder="留空自动生成"></label>
+    <div class="field" id="timer-icon-row" hidden>
+      <span>图标</span>
+      <div class="icon-picker" id="timer-icons"></div>
+    </div>
+    <button id="timer-add-action" class="ghost small add-action" type="button">＋ 再加一个动作</button>
+    <div class="action-draft" id="timer-draft"></div>
+    <p class="meta" id="timer-msg">定时会按上面的时间每天执行一次</p>
+    <p class="meta" id="scene-msg" hidden>场景会出现在场景页，点一下就能执行</p>
+    <div class="modal-actions">
+      <button id="timer-create" class="ghost small">创建</button>
+      <button id="timer-cancel" class="ghost small">取消</button>
+    </div>
+  </div>
+</div>
+
+<div id="login-modal" class="modal" hidden>
+  <div class="modal-box">
+    <h3>扫码登录</h3>
+    <p class="meta">用米家 App 扫描二维码</p>
+    <div class="qr-wrap"><img id="qr-image" alt="二维码" hidden><span id="qr-spinner">生成中…</span></div>
+    <p id="login-msg" class="meta">—</p>
+    <button id="close-modal" class="ghost">关闭</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

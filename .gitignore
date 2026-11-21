@@ -1,0 +1,38 @@
+# 运行期数据（凭据、插件缓存、spec 缓存、日志、收藏）——绝不入库
+data/
+
+# 打包产物与截图（发布时作为 Release 附件，不进 git）
+dist/
+out/
+
+# 反编译源码（米家 APK 的 jadx 输出，体积 900MB+，不入库）
+reverse/
+
+# 本地工具链（嵌入式 Python）
+.toolchain/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 本地实验脚本与笔记（含真实设备信息，不入库）
+tools/wol_timing_test.py
+tools/probe_fryer_limits.py
+tools/probe_tv_state.py
+tools/do_login.py
+docs/reverse/03-真机行为记录.md
+
+# 来源不明的 APK 派生数据（见 THIRD_PARTY_NOTICES.md 风险 1）：
+# 公开仓库不收录，需完整型号目录时用自己拥有的安装包本地生成：
+#   python tools/make_catalog.py && python tools/make_card_layouts.py
+mihome_pc/assets/catalog.json
+mihome_pc/assets/catalog_categories.json
+mihome_pc/assets/card_layouts.json

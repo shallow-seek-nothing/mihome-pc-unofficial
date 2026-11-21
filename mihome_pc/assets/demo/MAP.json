@@ -1,0 +1,26 @@
+[
+ {
+  "stem": "dishwasher_s2",
+  "model": "xiaomi.dishwasher.s2"
+ },
+ {
+  "stem": "airconditioner_ma1",
+  "model": "xiaomi.aircondition.ma1"
+ },
+ {
+  "stem": "washer_v5",
+  "model": "minij.washer.v5"
+ },
+ {
+  "stem": "fryer_maf04",
+  "model": "careli.fryer.maf04"
+ },
+ {
+  "stem": "health_pot_p1v2",
+  "model": "xiaomi.health_pot.p1v2"
+ },
+ {
+  "stem": "television_fsv1",
+  "model": "xiaomi.tv.fsv1"
+ }
+]
