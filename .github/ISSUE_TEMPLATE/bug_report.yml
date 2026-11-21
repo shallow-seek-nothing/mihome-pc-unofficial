@@ -1,0 +1,97 @@
+name: Bug 反馈
+description: 报告非官方米家 PC 客户端的功能异常或兼容性问题
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈非官方 Beta 版本的问题。
+
+        **请勿填写账号、密码、Cookie、二维码、passToken、ssecurity、serviceToken、设备 token 或完整凭据文件。** 日志和截图请先脱敏。
+  - type: input
+    id: version
+    attributes:
+      label: 客户端版本
+      description: 例如 0.7.36；可在界面或 mihome_pc/__init__.py 中查看。
+      placeholder: 0.7.36
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: 操作系统
+      options:
+        - Windows 11
+        - Windows 10
+        - Windows 7
+        - 其他（请在补充信息中说明）
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: 运行方式
+      options:
+        - Windows 绿色版，直接运行
+        - Windows 绿色版，通过 install.ps1 安装
+        - 源码运行
+        - 其他（请在补充信息中说明）
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 从启动程序开始，按顺序写出最小复现步骤；一次性问题也请说明发生前的操作。
+      placeholder: |
+        1. 启动客户端并登录
+        2. 打开某个设备页面
+        3. 点击某个控件
+        4. 出现异常
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 你原本期望程序怎样响应？
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？请附上界面报错或脱敏后的错误文本。
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 设备信息（可选）
+      description: 设备型号或 urn、地区服务器、固件版本；不要提供设备 token。
+      placeholder: 型号 / urn；cn 或其他地区；固件版本（如已知）
+  - type: textarea
+    id: frequency
+    attributes:
+      label: 复现频率与影响范围
+      description: 每次必现还是偶发？仅影响一个设备、一种功能，还是整个客户端？
+      placeholder: 例如：3 次均复现；仅该型号设备受影响
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 脱敏日志、截图与补充信息
+      description: 可拖入截图或粘贴脱敏日志。账号标识、用户 ID、家庭 ID、设备 ID、IP 地址等信息建议遮盖。
+      placeholder: 粘贴脱敏后的日志或补充说明
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已检查正文、日志和截图，未包含账号凭据、token、二维码或其他敏感信息。
+          required: true
+        - label: 我理解这是社区非官方项目，部分云端协议问题需要真实设备维护者协助复现。
+          required: true
