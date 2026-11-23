@@ -6,7 +6,7 @@ dist/
 out/
 
 # 反编译源码（米家 APK 的 jadx 输出，体积 900MB+，不入库）
-reverse/
+/reverse/
 
 # 本地工具链（嵌入式 Python）
 .toolchain/
