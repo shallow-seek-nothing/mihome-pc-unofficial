@@ -49,18 +49,24 @@
 
 * 新增测试：`tests/test_web.py::TestLoginSwitchesProvider`（6 条：首次登录即切
   CloudProvider、退出回演示、再登录、换账号、跨站退出 403、follow 标志）、
-  `TestBrokenCredentials`（2 条：坏凭据不 500、文件被外部删除回演示）、
-  `TestLoginFlowReset`（2 条）；`tests/test_auth.py` 原子写 1 条。
+  `TestBrokenCredentials`（3 条：坏 JSON 不 500、非对象 JSON 也退回演示、
+  文件被外部删除回演示）、`TestLoginFlowReset`（2 条）；`tests/test_auth.py` 原子写 1 条。
 * `out/verify_login_ui.py`：headless Edge 真跑「演示 → 写入凭据 → 已登录 →
   退出」三种状态并读 DOM，11 项全 PASS（截图在 `out/ui/`）。
 * `out/verify_portable_0_7_37.py`：解压**打包产物**，用包内 python38 起服务，
   验证「新装是演示 → 写入凭据即切 CloudProvider → 退出回演示」，
   并跑 `tools/regression.py`（11 项只读巡检，0 failed）。x64 与 x86 两个包各跑一遍。
-* 全量 **552** 条 unittest OK（跳过 3），`ruff` 全绿，`check_release.py` 全过。
+* 全量 **553** 条 unittest OK（跳过 3），`ruff` 全绿，`check_release.py` 全过。
 
 ### 工程
 
-* 版本 0.7.37；测试 540 → **552**。
+* 版本 0.7.37；测试 540 → **553**。
+* 复核补丁（提交后复查发现）：账号面板曾把「退出登录」/`credentials_error`
+  渲染两遍，已删掉重复；扫码线程「查 generation 再写凭据」与退出登录的
+  `reset()` 改用同一把锁，迟到的扫码结果不会把文件写回来；`credentials.json`
+  是合法 JSON 但不是对象（`[1, 2]`、`"x"`）时 `Credentials.from_dict` 抛的是
+  `AttributeError`，现在也按「损坏」退回演示；测试里屏蔽掉切 provider 触发的
+  后台插件同步，单元测试不再出网。
 * `build_win.py`（x64）与 `build_win32.py`（x86）都出了便携包，外加 deb / tar.gz；
   `release_notes.py` 的产物表自动收录本版本全部文件（4 个），`check_release.py` 全过。
 * 两个便携包分别用**包内解释器**验证：x64 是 64 位、x86 是 32 位，

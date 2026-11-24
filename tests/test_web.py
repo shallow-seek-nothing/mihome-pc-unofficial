@@ -630,13 +630,19 @@ class LoginServer(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self._original_data_dir = web_server._data_dir
+        self._original_sync = web_server.sync_plugins_in_background
         web_server._data_dir = lambda: self.tmp.name
+        # switching to CloudProvider kicks off a plugin-text sync in a daemon
+        # thread, which would call the real cloud with these fake tokens.
+        # Unit tests must stay offline: the sync itself is covered elsewhere.
+        web_server.sync_plugins_in_background = lambda provider: None
         self.credentials = os.path.join(self.tmp.name, "credentials.json")
         self.fixture = ServerFixture(server=web_server.create_server(
             provider=None, port=0, credentials_path=self.credentials)).start()
 
     def tearDown(self):
         self.fixture.stop()
+        web_server.sync_plugins_in_background = self._original_sync
         web_server._data_dir = self._original_data_dir
         self.tmp.cleanup()
 
@@ -730,6 +736,15 @@ class TestBrokenCredentials(LoginServer):
         # the device list still answers instead of exploding
         self.assertEqual(self.fixture.status_of("/api/devices"), 200)
 
+    def test_non_object_json_also_falls_back_to_demo(self):
+        # valid JSON, but not an object: ``Credentials.from_dict`` raises
+        # AttributeError, not ValueError, so the first fix missed this shape
+        with open(self.credentials, "w", encoding="utf-8") as handle:
+            handle.write("[1, 2]")
+        status = self.fixture.get("/api/status")
+        self.assertTrue(status["demo"])
+        self.assertIn("凭据文件无法读取", status.get("credentials_error", ""))
+
     def test_deleting_the_file_outside_the_app_also_returns_to_demo(self):
         self.login()
         self.assertFalse(self.fixture.get("/api/status")["demo"])
@@ -749,13 +764,39 @@ class TestLoginFlowReset(unittest.TestCase):
         self.assertEqual(flow.status(), {"state": "idle", "message": "",
                                          "has_image": False})
 
-    def test_reset_invalidates_a_scan_still_in_flight(self):
-        flow = web_server.LoginFlow("unused.json")
-        flow.start = lambda: None                 # keep the network out of this
-        generation = flow._generation
-        flow.reset()
-        self.assertGreater(flow._generation, generation,
-                           "a late scan result must not write credentials back")
+    def test_a_late_scan_result_cannot_write_credentials_back(self):
+        """A scan that lands *after* logout must not recreate the file.
+
+        This is the whole point of the generation counter, so exercise it
+        instead of only asserting that ``reset()`` bumps the number.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "credentials.json")
+            flow = web_server.LoginFlow(path)
+
+            class FakeQr:
+                def __init__(self, qr_size=400):
+                    pass
+
+                def request_qr(self):
+                    return "http://127.0.0.1:1/qr", None, None
+
+                def wait_for_scan(self, timeout=300):
+                    flow.reset()      # the user logs out while the phone confirms
+                    return auth_mod.Credentials(user_id="1", service_token="st")
+
+            original_qr = auth_mod.QrLogin
+            original_fetch = web_server._fetch_image
+            auth_mod.QrLogin = FakeQr
+            web_server._fetch_image = lambda login, url: b"png"
+            try:
+                flow._run(flow._generation)
+            finally:
+                auth_mod.QrLogin = original_qr
+                web_server._fetch_image = original_fetch
+            self.assertFalse(os.path.exists(path),
+                             "a late scan must not restore the credentials file")
+            self.assertEqual(flow.status()["state"], "idle")
 
 
 class TestRemoteOnlyDevice(WebTestCase):

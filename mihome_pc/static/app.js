@@ -185,10 +185,6 @@
       }
       body.appendChild(el("p", "hint",
         "\u63d2\u4ef6\u6587\u6848\u7528\u4e8e\u679a\u4e3e\u6807\u7b7e\u4e0e\u6545\u969c\u7801\u5bf9\u7167\uff1b\u672a\u540c\u6b65\u7684\u578b\u53f7\u4f7f\u7528\u5185\u7f6e\u8bcd\u5178\u3002"));
-      if (status.credentials_error) {
-        body.appendChild(el("p", "hint", status.credentials_error));
-      }
-      addAccountActions(body, status);
       loadMembers(body);
     });
   }

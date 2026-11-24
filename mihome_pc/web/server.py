@@ -2073,18 +2073,22 @@ class LoginFlow:
         self._login = None
         self._thread = None
         self._generation = 0         # 作废「退出登录/重开弹窗」之前的扫码线程
+        # 「读 generation 再写凭据」必须是原子的：否则退出登录删掉文件之后，
+        # 一条已经过了检查的扫码线程仍会把它写回来，用户会莫名又被登录。
+        self._guard = threading.Lock()
         self.credentials = None
 
     def start(self):
-        if self.state == "waiting":
-            return self.state
-        self.state = "waiting"
-        self.message = ""
-        self.qr_png = None
-        self.qr_url = None
-        self.credentials = None
-        self._generation += 1
-        generation = self._generation
+        with self._guard:
+            if self.state == "waiting":
+                return self.state
+            self.state = "waiting"
+            self.message = ""
+            self.qr_png = None
+            self.qr_url = None
+            self.credentials = None
+            self._generation += 1
+            generation = self._generation
         self._thread = threading.Thread(target=self._run, args=(generation,))
         self._thread.daemon = True
         self._thread.start()
@@ -2094,15 +2098,18 @@ class LoginFlow:
         """Forget the finished login (used by logout / a fresh QR request).
 
         Bumps the generation so a scan that is still in flight cannot write
-        credentials *after* the user logged out.
+        credentials *after* the user logged out.  Takes the same lock the scan
+        thread holds while it writes, so a scan that is already past its check
+        finishes first and its file is then removed by the caller.
         """
-        self._generation += 1
-        self.state = "idle"
-        self.message = ""
-        self.qr_png = None
-        self.qr_url = None
-        self.credentials = None
-        self._login = None
+        with self._guard:
+            self._generation += 1
+            self.state = "idle"
+            self.message = ""
+            self.qr_png = None
+            self.qr_url = None
+            self.credentials = None
+            self._login = None
         return self.state
 
     def _run(self, generation):
@@ -2116,12 +2123,13 @@ class LoginFlow:
                 return
             self.qr_png = png
             credentials = login.wait_for_scan(timeout=300)
-            if generation != self._generation:
-                return                 # logged out / restarted meanwhile
-            auth.save_credentials(credentials, self.credentials_path)
-            self.credentials = credentials
-            self.state = "ok"
-            self.message = "logged in"
+            with self._guard:
+                if generation != self._generation:
+                    return             # logged out / restarted meanwhile
+                auth.save_credentials(credentials, self.credentials_path)
+                self.credentials = credentials
+                self.state = "ok"
+                self.message = "logged in"
         except Exception as exc:                   # noqa: BLE001 - surfaced to the page
             if generation != self._generation:
                 return
@@ -2226,6 +2234,10 @@ class _Handler(BaseHTTPRequestHandler):
         """
         path = self.credentials_path
         state = self.provider_state
+        # 先作废进行中的扫码（它会等写凭据的那把锁），再删文件：
+        # 顺序反过来时，刚过检查的扫码线程会把文件重新写出来。
+        if self.login_flow is not None:
+            self.login_flow.reset()          # a scan in flight must not log back in
         try:
             if os.path.exists(path):
                 os.remove(path)
@@ -2237,8 +2249,6 @@ class _Handler(BaseHTTPRequestHandler):
             with state["lock"]:
                 state["provider"] = DemoProvider()
                 state["stamp"] = _credentials_stamp(path)
-        if self.login_flow is not None:
-            self.login_flow.reset()          # a scan in flight must not log back in
         log_line("logout: credentials removed")
         return {"ok": True, "demo": True}
 
@@ -2422,7 +2432,7 @@ class _Handler(BaseHTTPRequestHandler):
                 if payload.get("demo") and payload["credentials"]:
                     try:
                         auth.load_credentials(self.credentials_path)
-                    except (OSError, ValueError) as exc:
+                    except (OSError, ValueError, AttributeError) as exc:
                         payload["credentials_error"] = (
                             "凭据文件无法读取（%s），请重新扫码登录" % type(exc).__name__)
                         log_line("status: credentials unreadable: %s" % (exc,))
@@ -2936,12 +2946,14 @@ def make_provider(credentials_path=None):
 
     An unreadable/half-written credentials file falls back to demo with a log
     line instead of raising: ``provider`` runs on every request, and a corrupt
-    JSON blob used to turn the whole UI into 500s.
+    JSON blob used to turn the whole UI into 500s.  ``AttributeError`` is the
+    ``[1, 2]`` / ``"x"`` case: valid JSON, but not an object we can build
+    ``Credentials`` from.
     """
     credentials_path = credentials_path or os.path.join(_data_dir(), "credentials.json")
     try:
         credentials = auth.load_credentials(credentials_path)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, AttributeError) as exc:
         log_line("credentials unreadable (%s): %s" % (type(exc).__name__, exc))
         return DemoProvider()
     if credentials is None:
