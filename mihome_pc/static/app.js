@@ -2615,14 +2615,45 @@
   // ---------- 扫码登录 ----------
   function openLogin() {
     $("login-modal").hidden = false;
+    $("login-title").textContent = "扫码登录";
+    $("login-subtitle").textContent = "用米家 App 扫描二维码";
+    $("login-msg").className = "meta";
     $("login-msg").textContent = "正在获取二维码…";
+    $("qr-wrap").hidden = false;
     $("qr-image").hidden = true;
     $("qr-spinner").hidden = false;
+    $("login-loading").hidden = true;
+    $("login-hint").hidden = false;
+    $("login-retry").hidden = true;
     api("/api/qr").catch(function (error) {
       $("login-msg").textContent = "获取失败：" + error.message;
     });
     if (state.qrTimer) { window.clearInterval(state.qrTimer); }
     state.qrTimer = window.setInterval(pollLogin, 1500);
+  }
+
+  function showLoginLoading(message) {
+    $("login-modal").hidden = false;
+    $("login-title").textContent = "永远相信美好的事情即将发生";
+    $("login-subtitle").textContent = "正在连接账号并同步你的米家设备";
+    $("qr-wrap").hidden = true;
+    $("login-loading").hidden = false;
+    $("login-hint").hidden = true;
+    $("login-retry").hidden = true;
+    $("login-msg").className = "meta";
+    $("login-msg").textContent = message;
+  }
+
+  function showLoginError(message) {
+    $("login-modal").hidden = false;
+    $("login-title").textContent = "永远相信美好的事情即将发生";
+    $("login-subtitle").textContent = "设备数据还没有加载完成";
+    $("qr-wrap").hidden = true;
+    $("login-loading").hidden = true;
+    $("login-hint").hidden = true;
+    $("login-retry").hidden = false;
+    $("login-msg").className = "meta login-error";
+    $("login-msg").textContent = "加载失败：" + message;
   }
 
   function pollLogin() {
@@ -2639,8 +2670,7 @@
       if (payload.state === "ok") {
         window.clearInterval(state.qrTimer);
         state.qrTimer = null;
-        $("login-modal").hidden = true;
-        toast("登录成功，正在读取账号数据…");
+        showLoginLoading("登录成功，正在读取账号数据…");
         verifyLogin(0);
         return;
       }
@@ -2652,26 +2682,30 @@
     }).catch(function () { /* 忽略瞬时错误 */ });
   }
 
-  // 扫码确认后，后端要把 provider 从演示切到账号数据（改的是 credentials.json）。
-  // 这里等 /api/status 真的变成「已登录」再重载界面，而不是盲等 600ms：
-  // 0.7.36 及以前「新装账号扫码后仍是演示模式」就是切换根本没发生，
-  // 页面看起来像登录成功后没反应，只能重启程序（issue #1）。
+  // 扫码确认后，先等 provider 切到账号，再等设备列表真正回来。
+  // 加载期间不关掉弹窗；失败必须给出原因和重试入口，不能只留一个空白首页。
   function verifyLogin(attempt) {
+    showLoginLoading(attempt ? "仍在等待账号状态，正在重试…" : "登录成功，正在读取账号数据…");
     loadStatus().catch(function () { return null; }).then(function (status) {
       if (status && !status.demo) {
-        boot();
+        showLoginLoading("账号已连接，正在加载设备列表…");
+        boot().then(function (result) {
+          if (result && result.devicesError) {
+            showLoginError(result.devicesError.message || String(result.devicesError));
+            return;
+          }
+          $("login-modal").hidden = true;
+          toast("设备数据已更新");
+        });
         return;
       }
       if (attempt < 5) {
         window.setTimeout(function () { verifyLogin(attempt + 1); }, 600);
         return;
       }
-      // 后端确实写成功了、只是界面没跟上：给一条能自救的提示，不要让人重启
-      $("login-modal").hidden = false;
-      $("login-msg").textContent = status && status.credentials_error
+      showLoginError(status && status.credentials_error
         ? status.credentials_error
-        : "登录已确认，但数据还没切换：按 F5 刷新页面即可";
-      toast("账号数据加载较慢，已提示刷新");
+        : "登录状态尚未生效，请重试；若持续失败，请重新扫码");
     });
   }
 
@@ -2687,13 +2721,15 @@
   function boot() {
     stopPolling();
     state.current = null;
+    var devicesError = null;
     // 分开兜底：/api/status 成功但设备列表失败（云端慢、被墙、token 过期）
     // 时，页面仍要完成启动 —— 否则连深链接和账号面板都打不开。
-    loadStatus().catch(function (error) {
+    return loadStatus().catch(function (error) {
       toast("状态读取失败：" + error.message);
       return null;
     }).then(function () {
       return loadDevices().catch(function (error) {
+        devicesError = error;
         toast("设备列表加载失败：" + error.message);
         state.devices = [];
         state.rooms = [];
@@ -2703,9 +2739,11 @@
     }).then(function () {
       refreshBadges();
       startUnreadPolling();
-      return openFromLocation();
+      openFromLocation();
+      return { devicesError: devicesError };
     }).catch(function (error) {
       toast("加载失败：" + error.message);
+      return { devicesError: error };
     });
   }
 
@@ -2830,6 +2868,7 @@
       if (event.target === $("status-modal")) { $("status-modal").hidden = true; }
     });
     $("close-modal").addEventListener("click", closeLogin);
+    $("login-retry").addEventListener("click", function () { verifyLogin(0); });
     $("login-modal").addEventListener("click", function (event) {
       if (event.target === $("login-modal")) { closeLogin(); }
     });

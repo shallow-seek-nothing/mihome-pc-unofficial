@@ -217,32 +217,83 @@ logs\\mihome-pc.log                                运行日志
    凭据文件坏了的话，界面会直接提示「凭据文件无法读取」，重新扫码即可
 4) 想换账号：「账号与同步」→「退出登录」，或退出程序后删除 credentials.json，重新扫码
 
+从旧版升级
+----------
+* 安装版：退出旧程序，双击新包的「安装到桌面.cmd」即可覆盖升级，不用先卸载；
+  用户数据和登录凭据会保留。
+* 绿色版：退出旧程序，把新版解压到新目录，将旧目录的整个 data 文件夹复制过来；
+  确认新版数据正常后再删除旧目录。升级前建议额外备份 data。
+
 卸载（绿色版）
 --------------
 右键托盘图标 →「退出」，然后直接删掉整个文件夹即可，不写注册表、不装服务。
 """ % VERSION
 
 INSTALL_PS1 = r"""param([switch]$Quiet)
-# 安装到当前用户（不写注册表、不装服务、不需要管理员）
-# 目标：%LOCALAPPDATA%\\Programs\\MiHomePC + 桌面/开始菜单快捷方式 + 卸载脚本
+# 安装/覆盖升级到当前用户（不写注册表、不装服务、不需要管理员）
+# 目标：%LOCALAPPDATA%\Programs\MiHomePC + 桌面/开始菜单快捷方式 + 卸载脚本
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$dest = Join-Path $env:LOCALAPPDATA 'Programs\\MiHomePC'
+$dest = Join-Path $env:LOCALAPPDATA 'Programs\MiHomePC'
+$staging = $dest + '.new-' + $PID
+$backup = $dest + '.old-' + $PID
 
 Write-Host ''
-Write-Host '米家 PC —— 安装到当前用户' -ForegroundColor Cyan
+Write-Host '米家 PC —— 安装 / 升级到当前用户' -ForegroundColor Cyan
 Write-Host ('  源目录: ' + $here)
 Write-Host ('  目标:   ' + $dest)
 
-if (Test-Path $dest) {
-  Write-Host '  检测到已安装，先删除旧版本…'
-  Remove-Item -Recurse -Force $dest
+# 只结束本程序自己的进程，不影响用户其他 Python 程序。
+Get-Process -Name pythonw, python -ErrorAction SilentlyContinue |
+  Where-Object { $_.Path -like ($dest + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
+# Windows 可能在进程退出后短暂保留目录锁；有限重试，仍失败则走回滚。
+function Rename-WithRetry($path, $newName) {
+  for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    try {
+      Rename-Item -Path $path -NewName $newName -ErrorAction Stop
+      return
+    } catch {
+      if ($attempt -eq 9) { throw }
+      Start-Sleep -Milliseconds 500
+    }
+  }
 }
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-Copy-Item -Path (Join-Path $here '*') -Destination $dest -Recurse -Force
-# 安装版不再使用便携模式：数据放 %USERPROFILE%\.mihome-pc
-$flag = Join-Path $dest 'portable.flag'
-if (Test-Path $flag) { Remove-Item -Force $flag }
+
+# 先完整复制到同级暂存目录。复制失败时旧版仍可继续使用，不会只剩半个程序。
+try {
+  if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+  if (Test-Path $backup) { Remove-Item -Recurse -Force $backup }
+  New-Item -ItemType Directory -Force -Path $staging | Out-Null
+  Copy-Item -Path (Join-Path $here '*') -Destination $staging -Recurse -Force
+  # 安装版不使用便携模式：标准数据目录是 %USERPROFILE%\.mihome-pc。
+  $flag = Join-Path $staging 'portable.flag'
+  if (Test-Path $flag) { Remove-Item -Force $flag }
+
+  if (Test-Path $dest) {
+    Write-Host '  检测到旧版本，备份后升级…'
+    Rename-WithRetry $dest (Split-Path -Leaf $backup)
+  }
+  Rename-WithRetry $staging (Split-Path -Leaf $dest)
+
+  # 极少数用户目录不可写的旧安装会把数据回退到 <安装目录>\data，升级必须带回来。
+  $oldData = Join-Path $backup 'data'
+  if (Test-Path $oldData) {
+    Copy-Item -Path $oldData -Destination $dest -Recurse -Force
+  }
+} catch {
+  # 切换任一步失败都尽量恢复旧目录；标准用户数据从未离开原位置。
+  if ((Test-Path $backup) -and (Test-Path $dest)) {
+    Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue
+  }
+  if ((Test-Path $backup) -and (-not (Test-Path $dest))) {
+    Rename-WithRetry $backup (Split-Path -Leaf $dest)
+  }
+  throw
+} finally {
+  if (Test-Path $staging) { Remove-Item -Recurse -Force $staging -ErrorAction SilentlyContinue }
+}
 
 $pythonw = Join-Path $dest 'python38\\pythonw.exe'
 $icon = Join-Path $dest 'mihome_pc\\assets\\mihome.ico'
@@ -269,7 +320,7 @@ $unArgs = '-NoProfile -ExecutionPolicy Bypass -File ' + (Join-Path $dest 'uninst
 New-Shortcut (Join-Path $startMenu '卸载 米家 PC.lnk') 'powershell.exe' $unArgs $dest $icon
 
 $uninstall = @'
-# 卸载：删程序目录、桌面与开始菜单快捷方式（数据目录保留，手动删即可）
+# 卸载：删程序目录、桌面与开始菜单快捷方式（标准用户数据目录保留）
 $dest = Split-Path -Parent $MyInvocation.MyCommand.Path
 $desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '米家 PC.lnk'
 $startFolder = Join-Path ([Environment]::GetFolderPath('Programs')) '米家 PC'
@@ -277,14 +328,16 @@ Get-Process -Name pythonw, python -ErrorAction SilentlyContinue |
   Where-Object { $_.Path -like ($dest + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue
 if (Test-Path $desktopLnk) { Remove-Item -Force $desktopLnk }
 if (Test-Path $startFolder) { Remove-Item -Recurse -Force $startFolder }
-Write-Host '数据目录（凭据/缓存）没有删除，需要的话手动删掉 %USERPROFILE%\.mihome-pc'
+Write-Host '标准数据目录没有删除：%USERPROFILE%\.mihome-pc'
 Start-Sleep -Seconds 2
 Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue
 '@
 Set-Content -Path (Join-Path $dest 'uninstall.ps1') -Value $uninstall -Encoding UTF8
 
+if (Test-Path $backup) { Remove-Item -Recurse -Force $backup -ErrorAction SilentlyContinue }
+
 Write-Host ''
-Write-Host '安装完成：' -ForegroundColor Green
+Write-Host '安装 / 升级完成，用户数据已保留：' -ForegroundColor Green
 Write-Host ('  桌面快捷方式: ' + (Join-Path $desktop '米家 PC.lnk'))
 Write-Host ('  开始菜单:     ' + $startMenu)
 Write-Host '  双击桌面图标即可启动（右下角出现托盘图标）'
