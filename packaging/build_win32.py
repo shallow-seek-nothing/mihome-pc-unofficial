@@ -15,7 +15,7 @@ Two details that bite on this platform and are handled explicitly:
 
 * ``python38._pth`` **must be written without a BOM**.  PowerShell's
   ``Set-Content -Encoding UTF8`` adds one, which turns the first line into
-  "\ufeffpython38.zip" and the interpreter dies with
+  "\\ufeffpython38.zip" and the interpreter dies with
   ``init_fs_encoding: failed to get the Python codec``.
 * ``pythonw.exe`` has ``sys.stdout is None``; any bare ``print()`` raises and
   kills the process.  ``_boot.pyw`` re-binds stdout/stderr to a log file first.
@@ -124,7 +124,7 @@ If Not fso.FileExists(python) Then
     WScript.Quit 1
 End If
 shell.CurrentDirectory = here
-shell.Run """" & python & """ "" & here & "\\_boot.pyw""", 0, False
+shell.Run """" & python & """ """ & here & "\\_boot.pyw""", 0, False
 '''
 
 START_CMD = '''@echo off
@@ -251,7 +251,7 @@ function New-Shortcut($path, $target, $arguments, $workdir, $iconPath) {
 }
 
 $desktop = [Environment]::GetFolderPath('Desktop')
-$startMenu = [Environment]::GetFolderPath('Programs')
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) '米家 PC'
 New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
 
 New-Shortcut (Join-Path $desktop '米家 PC.lnk') $pythonw '-m mihome_pc app' $dest $icon
