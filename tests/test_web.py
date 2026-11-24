@@ -21,17 +21,26 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mihome_pc.domain import model as device_model  # noqa: E402
 from mihome_pc.web import server as web_server  # noqa: E402
+from mihome_pc.xiaomi import auth as auth_mod  # noqa: E402
 from mihome_pc.xiaomi import spec as spec_mod  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "specs")
 
 
 class ServerFixture:
-    """Starts a server with the demo provider on a free port."""
+    """Starts a server with the demo provider on a free port.
 
-    def __init__(self):
-        self.provider = web_server.DemoProvider()
-        self.server = web_server.create_server(provider=self.provider, port=0)
+    Pass ``server=`` to drive a server built by the caller (a custom
+    ``credentials_path``, say) with the same request helpers.
+    """
+
+    def __init__(self, provider=None, server=None):
+        if server is None:
+            self.provider = provider or web_server.DemoProvider()
+            self.server = web_server.create_server(provider=self.provider, port=0)
+        else:
+            self.provider = None
+            self.server = server
         self.host, self.port = self.server.server_address[0], self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever)
         self.thread.daemon = True
@@ -53,21 +62,23 @@ class ServerFixture:
         body = response.read()
         return body if raw else json.loads(body.decode("utf-8"))
 
-    def post(self, path, payload):
+    def post(self, path, payload, headers=None):
         data = json.dumps(payload).encode("utf-8")
-        request = Request(self.url(path), data=data,
-                          headers={"Content-Type": "application/json"})
+        merged = {"Content-Type": "application/json"}
+        merged.update(headers or {})
+        request = Request(self.url(path), data=data, headers=merged)
         response = urlopen(request, timeout=10)
         return json.loads(response.read().decode("utf-8"))
 
-    def status_of(self, path, method="GET", payload=None):
+    def status_of(self, path, method="GET", payload=None, headers=None):
         try:
             if method == "GET":
                 urlopen(self.url(path), timeout=10)
             else:
                 data = json.dumps(payload or {}).encode("utf-8")
-                urlopen(Request(self.url(path), data=data,
-                                headers={"Content-Type": "application/json"}), timeout=10)
+                merged = {"Content-Type": "application/json"}
+                merged.update(headers or {})
+                urlopen(Request(self.url(path), data=data, headers=merged), timeout=10)
             return 200
         except HTTPError as exc:
             return exc.code
@@ -607,6 +618,144 @@ class TestProviderSelection(unittest.TestCase):
                           sentinel)
         finally:
             server.server_close()
+
+
+class LoginServer(unittest.TestCase):
+    """A ``create_server(provider=None)`` instance with its own credentials file.
+
+    This is the real path the desktop app takes: no explicit provider, so the
+    server owns the provider and watches ``credentials.json``.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self._original_data_dir = web_server._data_dir
+        web_server._data_dir = lambda: self.tmp.name
+        self.credentials = os.path.join(self.tmp.name, "credentials.json")
+        self.fixture = ServerFixture(server=web_server.create_server(
+            provider=None, port=0, credentials_path=self.credentials)).start()
+
+    def tearDown(self):
+        self.fixture.stop()
+        web_server._data_dir = self._original_data_dir
+        self.tmp.cleanup()
+
+    def login(self):
+        auth_mod.save_credentials(auth_mod.Credentials(
+            user_id="1234567", c_user_id="c123", service_token="st-fake",
+            ssecurity="ssec-fake", pass_token="pt-fake",
+            device_id="abcdef0123456789"), self.credentials)
+
+
+class TestLoginSwitchesProvider(LoginServer):
+    """Issue #1 (2026-11-24): 新装用户扫码成功后仍然停在演示模式。
+
+    ``stamp is None`` doubled as "no credentials file" and "never follow the
+    file", so a fresh install's stamp was ``None`` and the running server kept
+    the demo provider forever -- a restart (which re-read the file at startup)
+    was the only way out.
+    """
+
+    def test_server_follows_the_credentials_file(self):
+        state = self.fixture.server.RequestHandlerClass.provider_state
+        self.assertTrue(state["follow"], "provider=None must follow the file")
+
+    def test_first_login_leaves_demo_mode_without_a_restart(self):
+        before = self.fixture.get("/api/status")
+        self.assertTrue(before["demo"])
+        self.assertFalse(before["credentials"])
+
+        self.login()
+
+        after = self.fixture.get("/api/status")
+        self.assertFalse(after["demo"], "login must switch the provider")
+        self.assertTrue(after["logged_in"])
+        self.assertTrue(after["credentials"])
+        self.assertEqual(after["provider"], "CloudProvider")
+
+    def test_logout_returns_to_demo_and_deletes_the_file(self):
+        self.login()
+        self.assertFalse(self.fixture.get("/api/status")["demo"])
+
+        result = self.fixture.post("/api/logout", {})
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["demo"])
+        self.assertFalse(os.path.exists(self.credentials))
+
+        after = self.fixture.get("/api/status")
+        self.assertTrue(after["demo"])
+        self.assertFalse(after["credentials"])
+        self.assertEqual(after["provider"], "DemoProvider")
+
+    def test_logout_then_login_again_switches_back(self):
+        self.login()
+        self.fixture.post("/api/logout", {})
+        self.assertTrue(self.fixture.get("/api/status")["demo"])
+
+        self.login()
+        self.assertFalse(self.fixture.get("/api/status")["demo"])
+
+    def test_relogin_with_a_different_file_is_noticed(self):
+        self.login()
+        self.assertFalse(self.fixture.get("/api/status")["demo"])
+        # a second account writes a shorter token; mtime could repeat on a
+        # coarse filesystem, so the stamp carries the size as well
+        auth_mod.save_credentials(auth_mod.Credentials(
+            user_id="7654321", service_token="st2",
+            ssecurity="s2", pass_token="pt2", device_id="dev2"), self.credentials)
+        meta = self.fixture.get("/api/status")
+        self.assertFalse(meta["demo"])
+        self.assertEqual(meta["provider"], "CloudProvider")
+
+    def test_logout_rejects_a_cross_site_post(self):
+        self.login()
+        code = self.fixture.status_of(
+            "/api/logout", method="POST", payload={},
+            headers={"Origin": "https://evil.example"})
+        self.assertEqual(code, 403)
+        self.assertTrue(os.path.exists(self.credentials),
+                        "a refused logout must not delete anything")
+
+
+class TestBrokenCredentials(LoginServer):
+    """A corrupt credentials file must not turn every request into a 500."""
+
+    def test_corrupt_credentials_fall_back_to_demo_with_a_hint(self):
+        with open(self.credentials, "w", encoding="utf-8") as handle:
+            handle.write("{not json")
+        status = self.fixture.get("/api/status")
+        self.assertTrue(status["demo"])
+        self.assertTrue(status["credentials"])
+        self.assertIn("凭据文件无法读取", status.get("credentials_error", ""))
+        # the device list still answers instead of exploding
+        self.assertEqual(self.fixture.status_of("/api/devices"), 200)
+
+    def test_deleting_the_file_outside_the_app_also_returns_to_demo(self):
+        self.login()
+        self.assertFalse(self.fixture.get("/api/status")["demo"])
+        os.remove(self.credentials)
+        self.assertTrue(self.fixture.get("/api/status")["demo"])
+
+
+class TestLoginFlowReset(unittest.TestCase):
+    """退出登录必须把「已登录」状态和还没结束的扫码一起作废。"""
+
+    def test_reset_clears_the_finished_state(self):
+        flow = web_server.LoginFlow("unused.json")
+        flow.state = "ok"
+        flow.message = "logged in"
+        flow.qr_png = b"png"
+        flow.reset()
+        self.assertEqual(flow.status(), {"state": "idle", "message": "",
+                                         "has_image": False})
+
+    def test_reset_invalidates_a_scan_still_in_flight(self):
+        flow = web_server.LoginFlow("unused.json")
+        flow.start = lambda: None                 # keep the network out of this
+        generation = flow._generation
+        flow.reset()
+        self.assertGreater(flow._generation, generation,
+                           "a late scan result must not write credentials back")
 
 
 class TestRemoteOnlyDevice(WebTestCase):

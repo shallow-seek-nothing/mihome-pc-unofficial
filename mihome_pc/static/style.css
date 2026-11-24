@@ -838,6 +838,17 @@ input[type=range] { width: 170px; accent-color: var(--accent); }
 .meta-key { flex: 0 0 96px; color: var(--text-dim); }
 .meta-value { min-width: 0; word-break: break-all; }
 .meta-head { margin: 16px 0 4px; font-size: 13px; color: var(--text-dim); font-weight: 600; }
+/* 账号面板里的登录/退出按钮：跟在账号行下面，不随内容滚走 */
+.account-action {
+  display: block; margin: 10px 0 6px; width: 100%;
+  padding: 8px 12px; border-radius: 9px;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+}
+.account-action:hover { border-color: var(--accent); color: var(--accent); }
+.account-action.danger { color: var(--danger); border-color: rgba(229, 72, 77, .35); }
+.account-action.danger:hover { background: rgba(229, 72, 77, .08); border-color: var(--danger); color: var(--danger); }
+.account-action:disabled { opacity: .5; cursor: default; }
 
 /* 窄窗口：侧栏折成顶部一行，内容单列 */
 @media (max-width: 1000px) {

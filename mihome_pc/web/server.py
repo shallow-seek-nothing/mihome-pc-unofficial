@@ -2072,6 +2072,7 @@ class LoginFlow:
         self.qr_url = None
         self._login = None
         self._thread = None
+        self._generation = 0         # 作废「退出登录/重开弹窗」之前的扫码线程
         self.credentials = None
 
     def start(self):
@@ -2079,23 +2080,51 @@ class LoginFlow:
             return self.state
         self.state = "waiting"
         self.message = ""
-        self._thread = threading.Thread(target=self._run)
+        self.qr_png = None
+        self.qr_url = None
+        self.credentials = None
+        self._generation += 1
+        generation = self._generation
+        self._thread = threading.Thread(target=self._run, args=(generation,))
         self._thread.daemon = True
         self._thread.start()
         return self.state
 
-    def _run(self):
+    def reset(self):
+        """Forget the finished login (used by logout / a fresh QR request).
+
+        Bumps the generation so a scan that is still in flight cannot write
+        credentials *after* the user logged out.
+        """
+        self._generation += 1
+        self.state = "idle"
+        self.message = ""
+        self.qr_png = None
+        self.qr_url = None
+        self.credentials = None
+        self._login = None
+        return self.state
+
+    def _run(self, generation):
         try:
-            self._login = auth.QrLogin(qr_size=400)
-            qr_url, _lp, _lu = self._login.request_qr()
+            login = auth.QrLogin(qr_size=400)
+            self._login = login
+            qr_url, _lp, _lu = login.request_qr()
             self.qr_url = qr_url
-            self.qr_png = _fetch_image(self._login, qr_url)
-            credentials = self._login.wait_for_scan(timeout=300)
+            png = _fetch_image(login, qr_url)
+            if generation != self._generation:
+                return
+            self.qr_png = png
+            credentials = login.wait_for_scan(timeout=300)
+            if generation != self._generation:
+                return                 # logged out / restarted meanwhile
             auth.save_credentials(credentials, self.credentials_path)
             self.credentials = credentials
             self.state = "ok"
             self.message = "logged in"
         except Exception as exc:                   # noqa: BLE001 - surfaced to the page
+            if generation != self._generation:
+                return
             self.state = "error"
             # 只告诉页面错误类型：异常文本可能带 passToken / ticket / 响应体，
             # 而 /api/status 是不鉴权的（只限本机页面），不能把它当信使用。
@@ -2126,29 +2155,45 @@ class _Handler(BaseHTTPRequestHandler):
     server_version = "mihome-pc/0.1"
 
     # injected by AppServer
-    provider_state = None      # {"provider": Provider, "stamp": float|None}
+    provider_state = None      # {"provider", "stamp", "follow", "lock"}
     login_flow = None
 
     @property
     def provider(self):
         """Current provider, swapping in the cloud one once a login lands.
 
-        The page used to stay in demo mode after a successful QR login until
-        the process restarted, because the provider was fixed at startup.
-        ``stamp is None`` means "do not follow the file" (tests pass a
-        provider explicitly and must not touch the network).
+        ``follow`` says "this server owns the provider and keeps watching the
+        credentials file"; tests pass an explicit provider and leave it False,
+        so they never touch the network.
+
+        Issue #1 (2026-11-24): this used ``stamp is None`` to mean "do not
+        follow", but a *fresh install* has no credentials file, so its stamp is
+        ``None`` too.  The first QR login therefore wrote the file while the
+        property kept returning the demo provider forever -- users had to
+        restart the process even though the docs promised otherwise.  Now the
+        intent is a separate boolean and ``None`` only means "file absent".
         """
         state = self.provider_state
         if state is None:
             return DemoProvider()
-        if state.get("stamp") is None:
+        if not state.get("follow"):
             return state["provider"]
         stamp = _credentials_stamp(self.credentials_path)
-        if stamp != state["stamp"]:
+        if stamp == state.get("stamp"):
+            return state["provider"]
+        lock = state.get("lock")
+        with lock:            # two requests can notice the change at once
+            stamp = _credentials_stamp(self.credentials_path)
+            if stamp == state.get("stamp"):
+                return state["provider"]
+            provider = make_provider(self.credentials_path)
+            state["provider"] = provider
             state["stamp"] = stamp
-            state["provider"] = make_provider(self.credentials_path)
-            sync_plugins_in_background(state["provider"])
-        return state["provider"]
+            log_line("provider -> %s (credentials %s)" % (
+                "demo" if getattr(provider, "demo", True) else "cloud",
+                "present" if stamp is not None else "absent"))
+        sync_plugins_in_background(provider)
+        return provider
     quiet = True
 
     def log_message(self, fmt, *args):            # noqa: A003 - stdlib signature
@@ -2169,6 +2214,33 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _json(self, payload, status=200):
         self._send(status, json.dumps(payload, ensure_ascii=False))
+
+    # -- account -------------------------------------------------------
+    def _logout(self):
+        """Drop the stored credentials and go back to demo data.
+
+        Only this app's own file is touched: the account is the same one the
+        phone's Mi Home app uses, and revoking the passToken server-side would
+        sign the user out there too.  Every later request sees the file gone
+        (see ``provider``) and swaps back to the demo provider on its own.
+        """
+        path = self.credentials_path
+        state = self.provider_state
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError as exc:
+            log_line("logout: cannot remove credentials: %s" % (exc,))
+            return {"ok": False, "demo": False,
+                    "error": "无法删除凭据文件：%s" % (getattr(exc, "strerror", None) or exc)}
+        if state is not None and state.get("follow"):
+            with state["lock"]:
+                state["provider"] = DemoProvider()
+                state["stamp"] = _credentials_stamp(path)
+        if self.login_flow is not None:
+            self.login_flow.reset()          # a scan in flight must not log back in
+        log_line("logout: credentials removed")
+        return {"ok": True, "demo": True}
 
     def _static(self, relative):
         """只能读 STATIC_DIR 里的文件。
@@ -2341,7 +2413,19 @@ class _Handler(BaseHTTPRequestHandler):
             elif path.startswith("/static/"):
                 self._static(path[len("/static/"):])
             elif path == "/api/status":
-                payload = self.provider.status()
+                provider = self.provider
+                payload = provider.status()
+                # 「为什么是演示模式」要能一眼看出来：没登录 / 被换掉了 /
+                # 凭据文件坏了，三种情况的处置完全不同。
+                payload["provider"] = type(provider).__name__
+                payload["credentials"] = _credentials_stamp(self.credentials_path) is not None
+                if payload.get("demo") and payload["credentials"]:
+                    try:
+                        auth.load_credentials(self.credentials_path)
+                    except (OSError, ValueError) as exc:
+                        payload["credentials_error"] = (
+                            "凭据文件无法读取（%s），请重新扫码登录" % type(exc).__name__)
+                        log_line("status: credentials unreadable: %s" % (exc,))
                 payload["login"] = self.login_flow.status() if self.login_flow else None
                 self._json(payload)
             elif path == "/api/devices":
@@ -2431,7 +2515,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": body_error[1]}, body_error[0])
             return
         try:
-            if path == "/api/set":
+            if path == "/api/logout":
+                self._json(self._logout())
+            elif path == "/api/set":
                 did = body.get("did")
                 siid = body.get("siid")
                 piid = body.get("piid")
@@ -2677,10 +2763,13 @@ def create_server(provider=None, host="127.0.0.1", port=0, credentials_path=None
     if provider is None:
         provider = make_provider(credentials_path)
         stamp = _credentials_stamp(credentials_path)
+        follow = True
     else:
         stamp = None                       # explicit provider: never swap it
+        follow = False
     handler = type("BoundHandler", (_Handler,), {
-        "provider_state": {"provider": provider, "stamp": stamp},
+        "provider_state": {"provider": provider, "stamp": stamp, "follow": follow,
+                           "lock": threading.Lock()},
         "credentials_path": credentials_path,
         "login_flow": LoginFlow(credentials_path),
         "quiet": quiet,
@@ -2799,11 +2888,18 @@ def _plugin_text_count(model_name):
 
 
 def _credentials_stamp(path):
-    """mtime of the credentials file, or ``None`` when not logged in."""
+    """Cheap change detector for the credentials file.
+
+    ``(mtime, size)`` rather than a bare mtime: a re-login can rewrite the file
+    within the same clock tick on some filesystems, and the token length is a
+    free second signal.  ``None`` means "no file", which is *not* the same as
+    "do not follow the file" -- see ``_Handler.provider``.
+    """
     try:
-        return os.path.getmtime(path)
+        info = os.stat(path)
     except OSError:
         return None
+    return (info.st_mtime, info.st_size)
 
 
 def sync_plugins_in_background(provider):
@@ -2836,9 +2932,18 @@ def sync_plugins_in_background(provider):
 
 
 def make_provider(credentials_path=None):
-    """Cloud provider when credentials exist, demo otherwise."""
+    """Cloud provider when credentials exist, demo otherwise.
+
+    An unreadable/half-written credentials file falls back to demo with a log
+    line instead of raising: ``provider`` runs on every request, and a corrupt
+    JSON blob used to turn the whole UI into 500s.
+    """
     credentials_path = credentials_path or os.path.join(_data_dir(), "credentials.json")
-    credentials = auth.load_credentials(credentials_path)
+    try:
+        credentials = auth.load_credentials(credentials_path)
+    except (OSError, ValueError) as exc:
+        log_line("credentials unreadable (%s): %s" % (type(exc).__name__, exc))
+        return DemoProvider()
     if credentials is None:
         return DemoProvider()
     return CloudProvider(credentials)

@@ -373,17 +373,30 @@ def login_cache_path(base_dir=None):
 
 
 def save_credentials(credentials, path):
+    """Write the credentials atomically.
+
+    ``os.replace`` instead of remove-then-rename: the running server watches
+    this file, and a reader landing in the gap between "remove" and "rename"
+    would see "not logged in" and swap the UI back to demo data.  The pid
+    suffix keeps two writers (web login + ``cli refresh``) from sharing a tmp
+    file.
+    """
     directory = os.path.dirname(os.path.abspath(path))
     if directory and not os.path.isdir(directory):
         os.makedirs(directory)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as handle:
-        json.dump(credentials.to_dict(), handle, indent=1)
-    with contextlib.suppress(OSError):
-        os.chmod(tmp, 0o600)
-    if os.path.exists(path):
-        os.remove(path)
-    os.rename(tmp, path)
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(credentials.to_dict(), handle, indent=1)
+            handle.flush()
+            os.fsync(handle.fileno())
+        with contextlib.suppress(OSError):
+            os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
 
 
 def load_credentials(path):

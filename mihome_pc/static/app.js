@@ -134,8 +134,13 @@
     var body = $("account-body");
     body.innerHTML = "";
     body.appendChild(el("p", "hint", "\u6b63\u5728\u8bfb\u53d6\u2026"));
-    Promise.all([api("/api/status"), api("/api/meta")]).then(function (res) {
-      var status = res[0] || {};
+    // 两个请求各自兜底：/api/meta 要打云端，网络不好或 token 过期时会 401。
+    // 这种情况下面板仍要能用 —— 至少「退出登录」要能点到，不能一起失败。
+    Promise.all([
+      api("/api/status").catch(function () { return null; }),
+      api("/api/meta").catch(function () { return null; })
+    ]).then(function (res) {
+      var status = res[0] || state.status || {};
       var meta = res[1] || {};
       body.innerHTML = "";
       var rows = [
@@ -151,6 +156,20 @@
         row.appendChild(el("span", "meta-value", pair[1]));
         body.appendChild(row);
       });
+      if (!res[0] && !res[1]) {
+        body.appendChild(el("p", "hint",
+          "\u8d26\u53f7\u4fe1\u606f\u8bfb\u53d6\u5931\u8d25\uff1a\u670d\u52a1\u672a\u54cd\u5e94\uff0c\u8bf7\u91cd\u5f00\u754c\u9762"));
+        return;
+      }
+      // 操作按钮紧跟账号行：面板内容会滚，退出登录不能藏在最底下
+      if (status.credentials_error) {
+        body.appendChild(el("p", "hint", status.credentials_error));
+      }
+      addAccountActions(body, status);
+      if (!res[1]) {
+        body.appendChild(el("p", "hint",
+          "\u4e91\u7aef\u8d26\u53f7\u4fe1\u606f\u6682\u65f6\u8bfb\u4e0d\u5230\uff08\u7f51\u7edc\u6216 token\uff09\uff0c\u8bbe\u5907\u5217\u8868\u53ef\u80fd\u4e5f\u52a0\u8f7d\u4e0d\u51fa\u6765\u3002"));
+      }
       var plugins = meta.plugins || [];
       body.appendChild(el("h4", "meta-head", "\u63d2\u4ef6\u6587\u6848"));
       if (!plugins.length) {
@@ -166,11 +185,58 @@
       }
       body.appendChild(el("p", "hint",
         "\u63d2\u4ef6\u6587\u6848\u7528\u4e8e\u679a\u4e3e\u6807\u7b7e\u4e0e\u6545\u969c\u7801\u5bf9\u7167\uff1b\u672a\u540c\u6b65\u7684\u578b\u53f7\u4f7f\u7528\u5185\u7f6e\u8bcd\u5178\u3002"));
+      if (status.credentials_error) {
+        body.appendChild(el("p", "hint", status.credentials_error));
+      }
+      addAccountActions(body, status);
       loadMembers(body);
-    }).catch(function (error) {
-      body.innerHTML = "";
-      body.appendChild(el("p", "hint", "\u8bfb\u53d6\u5931\u8d25\uff1a" + error.message));
     });
+  }
+
+  // 账号与同步里的操作：演示模式给「扫码登录」，已登录给「退出登录」。
+  // 退出只删本机的 credentials.json，不动手机米家 App 的登录态。
+  function addAccountActions(body, status) {
+    if (!status || status.demo) {
+      var login = el("button", "account-action",
+        "\u626b\u7801\u767b\u5f55\uff08\u5f53\u524d\u4e3a\u6f14\u793a\u6a21\u5f0f\uff09");
+      login.type = "button";
+      login.addEventListener("click", function () {
+        $("account-modal").hidden = true;
+        openLogin();
+      });
+      body.appendChild(login);
+      return;
+    }
+    var button = el("button", "account-action danger", "\u9000\u51fa\u767b\u5f55");
+    button.type = "button";
+    var armed = false;
+    var timer = null;
+    button.addEventListener("click", function () {
+      if (!armed) {
+        // 两下确认，不用 window.confirm（弹窗会挡住键盘/焦点恢复）
+        armed = true;
+        button.textContent = "\u518d\u70b9\u4e00\u6b21\u786e\u8ba4\u9000\u51fa";
+        timer = window.setTimeout(function () {
+          armed = false;
+          button.textContent = "\u9000\u51fa\u767b\u5f55";
+        }, 4000);
+        return;
+      }
+      window.clearTimeout(timer);
+      armed = false;
+      button.disabled = true;
+      postJSON("/api/logout", {}).then(function (result) {
+        if (!result.ok) { throw new Error(result.error || "\u9000\u51fa\u5931\u8d25"); }
+        $("account-modal").hidden = true;
+        toast("\u5df2\u9000\u51fa\u767b\u5f55\uff0c\u5207\u56de\u6f14\u793a\u6a21\u5f0f");
+        boot();
+      }).catch(function (error) {
+        button.disabled = false;
+        button.textContent = "\u9000\u51fa\u767b\u5f55";
+        toast("\u9000\u51fa\u5931\u8d25\uff1a" + error.message);
+      });
+    });
+    body.appendChild(button);
   }
 
   function openStatus() {
@@ -2578,8 +2644,8 @@
         window.clearInterval(state.qrTimer);
         state.qrTimer = null;
         $("login-modal").hidden = true;
-        toast("登录成功，正在重新加载…");
-        window.setTimeout(boot, 600);
+        toast("登录成功，正在读取账号数据…");
+        verifyLogin(0);
         return;
       }
       if (payload.state === "error") {
@@ -2588,6 +2654,29 @@
         $("login-msg").textContent = "失败：" + payload.message;
       }
     }).catch(function () { /* 忽略瞬时错误 */ });
+  }
+
+  // 扫码确认后，后端要把 provider 从演示切到账号数据（改的是 credentials.json）。
+  // 这里等 /api/status 真的变成「已登录」再重载界面，而不是盲等 600ms：
+  // 0.7.36 及以前「新装账号扫码后仍是演示模式」就是切换根本没发生，
+  // 页面看起来像登录成功后没反应，只能重启程序（issue #1）。
+  function verifyLogin(attempt) {
+    loadStatus().catch(function () { return null; }).then(function (status) {
+      if (status && !status.demo) {
+        boot();
+        return;
+      }
+      if (attempt < 5) {
+        window.setTimeout(function () { verifyLogin(attempt + 1); }, 600);
+        return;
+      }
+      // 后端确实写成功了、只是界面没跟上：给一条能自救的提示，不要让人重启
+      $("login-modal").hidden = false;
+      $("login-msg").textContent = status && status.credentials_error
+        ? status.credentials_error
+        : "登录已确认，但数据还没切换：按 F5 刷新页面即可";
+      toast("账号数据加载较慢，已提示刷新");
+    });
   }
 
   function closeLogin() {
@@ -2602,7 +2691,20 @@
   function boot() {
     stopPolling();
     state.current = null;
-    loadStatus().then(loadDevices).then(function () {
+    // 分开兜底：/api/status 成功但设备列表失败（云端慢、被墙、token 过期）
+    // 时，页面仍要完成启动 —— 否则连深链接和账号面板都打不开。
+    loadStatus().catch(function (error) {
+      toast("状态读取失败：" + error.message);
+      return null;
+    }).then(function () {
+      return loadDevices().catch(function (error) {
+        toast("设备列表加载失败：" + error.message);
+        state.devices = [];
+        state.rooms = [];
+        state.home = "";
+        renderHome();
+      });
+    }).then(function () {
       refreshBadges();
       startUnreadPolling();
       return openFromLocation();
@@ -2761,13 +2863,25 @@
       head.classList.toggle("is-stuck", window.scrollY > 8);
     }, { passive: true });
 
-    // 切回窗口时立刻同步一次：轮询 5 秒一次，回来时往往已经过期了
+    // 切回窗口时立刻同步一次：轮询 5 秒一次，回来时往往已经过期了。
+    // 也顺手核对账号身份：在手机上扫码/退出之后切回来，演示模式与账号数据
+    // 的切换必须立刻反映到界面，不能等用户手动刷新。
     function onWake() {
       if (document.hidden) { return; }
-      if (state.current) { refreshOnce(); return; }
-      if (!$("home-view").hidden) {
-        loadDevices().then(renderHome).catch(function () { /* 忽略 */ });
-      }
+      var wasDemo = !state.status || state.status.demo;
+      loadStatus().then(function (status) {
+        if (!status) { return; }
+        if (wasDemo !== Boolean(status.demo)) {
+          boot();                     // 登录或退出：整页数据都要换
+          return;
+        }
+        if (state.current) { refreshOnce(); return; }
+        if (!$("home-view").hidden) {
+          loadDevices().then(renderHome).catch(function () { /* 忽略 */ });
+        }
+      }).catch(function () {
+        if (state.current) { refreshOnce(); }
+      });
     }
     window.addEventListener("focus", onWake);
     document.addEventListener("visibilitychange", onWake);

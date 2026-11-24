@@ -239,6 +239,20 @@ class TestCredentialStorage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             self.assertIsNone(auth.load_credentials(os.path.join(directory, "no.json")))
 
+    def test_save_replaces_in_place_and_leaves_no_tmp(self):
+        """The server watches this file: it must never disappear between writes.
+
+        A remove-then-rename left a window where ``load_credentials`` saw
+        nothing, and the UI swapped back to demo data for a moment.
+        """
+        credentials = auth.Credentials(user_id="1", service_token="first")
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "creds.json")
+            auth.save_credentials(credentials, path)
+            auth.save_credentials(auth.Credentials(user_id="1", service_token="second"), path)
+            self.assertEqual(auth.load_credentials(path).service_token, "second")
+            self.assertEqual(sorted(os.listdir(directory)), ["creds.json"])
+
     def test_login_cache_path(self):
         self.assertTrue(auth.login_cache_path("/tmp/x").endswith("credentials.json"))
 

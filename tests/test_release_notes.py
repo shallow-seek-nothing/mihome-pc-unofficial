@@ -62,6 +62,14 @@ class TestRender(unittest.TestCase):
         for item in release_notes.KNOWN_LIMITS:
             self.assertIn(item, text)
 
+    def test_highlights_only_for_versions_that_have_them(self):
+        self.assertNotIn("\u672c\u6b21\u91cd\u70b9", self.render())
+        with_notes = release_notes.render(
+            "0.7.37", [("mihome-pc-0.7.37-portable-win64.zip", 10, "c" * 64)],
+            highlights=("\u4fee\u590d demo \u5361\u4f4f",))
+        self.assertIn("## \u672c\u6b21\u91cd\u70b9", with_notes)
+        self.assertIn("\u4fee\u590d demo \u5361\u4f4f", with_notes)
+
     def test_empty_artifacts_says_so(self):
         text = self.render(entries=[])
         self.assertIn("\u5148\u8dd1 build_win.py", text)

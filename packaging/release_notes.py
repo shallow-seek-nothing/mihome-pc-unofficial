@@ -15,8 +15,20 @@ KNOWN_LIMITS = (
     "消息：没有常驻长连接，未读数每 45 秒轮询一次，不是实时推送。",
     "固件升级：只显示当前版本，不提供刷机。",
     "添加设备：按需求不做（扫码配网留给手机 App）。",
-    "Win7：按 Chromium 109 + Python 3.8 的兼容线写，但没有 Win7 机器实测。",
+    "Win7：0.7.36 已在 Win7 SP1 x64／x86 虚拟机完成 Demo 实测（裸系统需先装 UCRT）；"
+    "真实账号与设备、Chrome 109 未验证，详见 docs/win7-sp1-compatibility.md。",
 )
+
+# 每个版本在说明顶部写「为什么升级」；没有条目的版本就跳过这段。
+HIGHLIGHTS = {
+    "0.7.37": (
+        "修复 issue #1：新装用户扫码登录成功后仍停在演示模式。"
+        "0.7.36 及以前的进程只在启动时读一次凭据，必须重启程序才生效；现在扫码确认后自动切换，"
+        "也不用再手动刷新。",
+        "新增「账号与同步」→「退出登录」：只删本机凭据，不影响手机上的米家 App，"
+        "退出后立刻回到演示模式，可直接换账号。",
+    ),
+}
 
 
 def _human(size):
@@ -51,11 +63,19 @@ def collect(dist_dir, version):
     return found
 
 
-def render(version, entries, limits=KNOWN_LIMITS):
+def render(version, entries, limits=KNOWN_LIMITS, highlights=None):
     """The release note as markdown."""
+    if highlights is None:
+        highlights = HIGHLIGHTS.get(version, ())
     lines = [
         "# \u7c73\u5bb6 PC \u5ba2\u6237\u7aef %s \u53d1\u5e03\u8bf4\u660e" % version,
         "",
+    ]
+    if highlights:
+        lines += ["## \u672c\u6b21\u91cd\u70b9", ""]
+        lines += ["* " + item for item in highlights]
+        lines.append("")
+    lines += [
         ("\u672c\u6b21\u53d1\u5e03\u5305\u542b\u4e0b\u9762\u8fd9\u4e9b\u6587\u4ef6"
          "\uff08sha256 \u53ef\u7528\u4e8e\u6821\u9a8c\u4e0b\u8f7d"
          "\u662f\u5426\u5b8c\u6574\uff09\uff1a"),

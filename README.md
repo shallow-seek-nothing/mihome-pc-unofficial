@@ -9,7 +9,7 @@
 Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标准库 Python + 手写网页 UI**，
 不需要装任何第三方包，也不依赖 Electron。协议来自对 `com.xiaomi.smarthome` 11.9.705 的完整逆向。
 
-> 当前版本 **0.7.36**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
+> 当前版本 **0.7.37**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
 > [docs/04-功能对照.md](docs/04-功能对照.md)，逆向笔记在 [docs/reverse/](docs/reverse/)。
 
 ---
@@ -28,6 +28,7 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 | 消息 | ✅ | 按类型的最新消息、未读数、全部标为已读、单条删除、**每台设备的历史消息** |
 | 自动化 | ⚠️ | 列表、启停、改名改动作可用；**新建任意触发不可行**（见下文「已知限制」） |
 | 添加设备 | — | 按需求**不做**（扫码配网留给手机 App） |
+| 账号 | ✅ | 扫码登录后**无需重启**即切到账号数据；「账号与同步」里可**退出登录**（只删本机凭据，不影响手机米家） |
 
 ## 界面
 
@@ -43,12 +44,12 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 
 ## 下载与安装
 
-**最新版从这里下载** —— [Releases · v0.7.36](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.36)
+**最新版从这里下载** —— [Releases · v0.7.37](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.37)
 
 | 平台 | 文件 | 怎么用 |
 |---|---|---|
-| **Windows 64 位** | `mihome-pc-0.7.36-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
-| **Windows 32 位** | `mihome-pc-0.7.36-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
+| **Windows 64 位** | `mihome-pc-0.7.37-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| **Windows 32 位** | `mihome-pc-0.7.37-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
 | Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
 | Linux | 暂无（等 Windows 反馈稳定后单独发） | 之后是 `.deb` 与 `.tar.gz` 两种 |
 
@@ -60,6 +61,7 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 > **Win7 SP1 实测（0.7.36）**：x64／x86 均已在虚拟机中跑通 Demo。裸 Win7 SP1 需先安装
 > UCRT（KB2999226），并按系统安装要求重启；IE8 不支持，已验证 Firefox 115 ESR。
 > 本轮覆盖 Demo 服务、接口与界面，不等同于真实账号和真实设备全功能验证。
+> 0.7.37 的改动只在登录切换与账号面板，未在 Win7 复测。
 > 详见 [Win7 SP1 x64／x86 实测报告](docs/win7-sp1-compatibility.md)。
 
 ### 从源码跑
@@ -73,6 +75,16 @@ python -m mihome_pc serve        # 未登录时是演示数据
 只需要 Python 3.8+，**没有任何第三方依赖**。
 
 运行时会在右下角（Linux 在系统托盘）出现米家图标：左键打开界面，**右键可打开数据目录 / 退出**。
+
+## 登录与退出登录
+
+* 点右上角「扫码登录」，用米家 App 扫码。**确认后界面会自动切到账号数据，不用重启、
+  也不用手动刷新**；凭据写在数据目录的 `credentials.json`，下次启动自动登录。
+* 换账号 / 退出：侧栏「账号与同步」→「退出登录」（点两下确认）。它只删**本机**凭据，
+  不吊销 `passToken`，手机上的米家 App 不受影响；退出后立刻回到演示模式。
+* 0.7.36 及以前的**新装用户**扫码后仍停在演示模式（issue #1：进程只在启动时读一次凭据），
+  那条「手动刷新一次」的土办法其实只有重启才起作用。0.7.37 已修，升级即可。
+* 凭据文件损坏时界面会显示「凭据文件无法读取，请重新扫码登录」，不再是白屏或整页报错。
 
 ## 命令行
 

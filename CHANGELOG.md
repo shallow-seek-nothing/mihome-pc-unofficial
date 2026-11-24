@@ -5,6 +5,69 @@
 
 ---
 
+## 0.7.37 — 2026-11-24
+
+修 [#1](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/issues/1)：
+新装用户扫码登录成功后界面仍停在演示模式；顺带补上社区一直缺的**退出登录**。
+
+### 1. 扫码登录后不再需要重启进程（issue #1）
+
+* **根因**：`_Handler.provider` 把 `_credentials_stamp() is None`（"没有凭据文件"，
+  也就是**全新安装**的正常状态）当成了「不要跟随文件」的哨兵。
+  新装启动时 stamp 本来就是 `None`，于是扫码写入 `credentials.json` 之后，
+  属性永远返回启动时构造的 `DemoProvider` —— 页面提示登录成功、数据还是演示，
+  只有**重启程序**（启动时重新读文件）才生效。0.7.36 里「无需重启」只对
+  **早就登录过**的机器成立，这正是评论区"登录后没反应、手刷一下"的来源。
+* **修法**：`provider_state` 增加显式的 `follow` 字段（`provider=None` 时为 True，
+  测试显式传 provider 时为 False），`stamp` 只当变更检测；
+  `stamp` 由 mtime 改为 `(mtime, size)`，同一时钟刻内重写也能发现；
+  切 provider 时加锁，避免并发请求重复构造 `CloudProvider`。
+* `make_provider()` 遇到损坏/半写入的 `credentials.json` 记日志并退回演示，
+  不再让每个请求 500；`/api/status` 增加 `provider` / `credentials` /
+  `credentials_error`，一眼能分清「没登录」「被换掉」「凭据坏了」。
+* `auth.save_credentials()` 改为 `os.replace` 原子替换（原来
+  remove + rename 中间有空档，读者会看到"未登录"并瞬间切回演示），
+  tmp 名带 pid，写完 fsync。
+* 前端：扫码 ok 后不再盲等 600ms，而是轮询 `/api/status`
+  直到真的不是演示模式再 `boot()`；约 3 秒仍没切过来才提示按 F5。
+  `focus` / `visibilitychange` 也核对账号状态（手机上扫码后切回窗口立刻切换）；
+  `boot()` 把 status 与 devices 分开兜底，云端失败时深链接与账号面板仍然可用。
+
+### 2. 新增「退出登录」
+
+* `POST /api/logout`：删掉本机 `credentials.json`，provider 立刻切回演示，
+  并作废进行中的扫码（`LoginFlow` 加 generation 号，退出后迟到的扫码结果
+  不会把凭据写回来）。**只删本机文件、不吊销 passToken** —— 账号是和手机
+  米家 App 共用的，吊销会把人从手机上也踢下线。
+* 界面：「账号与同步」面板里，已登录显示「退出登录」（点两下确认，防误触），
+  演示模式显示「扫码登录」。面板对 `/api/meta` 失败单独兜底：云端或 token
+  有问题时「退出登录」按钮仍然可用（0.7.36 里整个面板会一起报错）。
+* 写入接口沿用 `_request_allowed(write=True)` 的 Host / Origin /
+  Sec-Fetch-Site 校验，跨站 POST 退出返回 403。
+
+### 证据
+
+* 新增测试：`tests/test_web.py::TestLoginSwitchesProvider`（6 条：首次登录即切
+  CloudProvider、退出回演示、再登录、换账号、跨站退出 403、follow 标志）、
+  `TestBrokenCredentials`（2 条：坏凭据不 500、文件被外部删除回演示）、
+  `TestLoginFlowReset`（2 条）；`tests/test_auth.py` 原子写 1 条。
+* `out/verify_login_ui.py`：headless Edge 真跑「演示 → 写入凭据 → 已登录 →
+  退出」三种状态并读 DOM，11 项全 PASS（截图在 `out/ui/`）。
+* `out/verify_portable_0_7_37.py`：解压**打包产物**，用包内 python38 起服务，
+  验证「新装是演示 → 写入凭据即切 CloudProvider → 退出回演示」，
+  并跑 `tools/regression.py`（11 项只读巡检，0 failed）。x64 与 x86 两个包各跑一遍。
+* 全量 **552** 条 unittest OK（跳过 3），`ruff` 全绿，`check_release.py` 全过。
+
+### 工程
+
+* 版本 0.7.37；测试 540 → **552**。
+* `build_win.py`（x64）与 `build_win32.py`（x86）都出了便携包，外加 deb / tar.gz；
+  `release_notes.py` 的产物表自动收录本版本全部文件（4 个），`check_release.py` 全过。
+* 两个便携包分别用**包内解释器**验证：x64 是 64 位、x86 是 32 位，
+  使用须知含「退出登录」与「不用重启程序」。
+
+---
+
 ## 0.7.36 — 2026-11-21
 
 按所有者决定：**Windows 安装包也不再附带** `catalog.json` / `catalog_categories.json` / `card_layouts.json`。

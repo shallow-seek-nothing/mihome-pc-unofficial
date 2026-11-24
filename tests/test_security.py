@@ -313,7 +313,7 @@ class TestLoginSecrets(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         try:
             flow = web_server.LoginFlow(os.path.join(tmp.name, 'credentials.json'))
-            flow._run()
+            flow._run(flow._generation)
             self.assertEqual(flow.state, 'error')
             status = flow.status()
             log_path = os.path.join(web_server._data_dir(), 'logs', 'web.log')
