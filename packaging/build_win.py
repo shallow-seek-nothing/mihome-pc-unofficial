@@ -29,6 +29,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+
+from distribution_policy import (assert_tree_clean, copy_legal_documents,
+                                 copy_project_package)
+
 EMBED = os.path.join(ROOT, ".toolchain", "py38")
 DIST = os.path.join(ROOT, "dist", "mihome-pc-win64")
 
@@ -169,15 +174,15 @@ logs\\mihome-pc.log                            runtime log
 
 
 
-USAGE_TXT = r"""米家 PC 客户端 %s —— 使用须知（绿色版）
+USAGE_TXT = r"""PC 控制端 %s —— 使用须知（绿色版）
 ================================================
 
 怎么启动
 --------
 双击  mihome.vbs  （无控制台窗口；图标出现在右下角通知区域）
 
-启动后在右下角能看到一个绿色图标：
-  * 双击图标 / 右键 →「打开米家 PC」  打开界面
+启动后在右下角能看到 PC 控制端图标：
+  * 双击图标 / 右键 →「打开 PC 控制端」  打开界面
   * 右键 →「打开数据目录」           看缓存、日志、截图
   * 右键 →「退出」                   关闭程序（菜单里也能看到服务地址）
 
@@ -239,7 +244,7 @@ $staging = $dest + '.new-' + $PID
 $backup = $dest + '.old-' + $PID
 
 Write-Host ''
-Write-Host '米家 PC —— 安装 / 升级到当前用户' -ForegroundColor Cyan
+Write-Host 'PC 控制端 —— 安装 / 升级到当前用户' -ForegroundColor Cyan
 Write-Host ('  源目录: ' + $here)
 Write-Host ('  目标:   ' + $dest)
 
@@ -306,28 +311,38 @@ function New-Shortcut($path, $target, $arguments, $workdir, $iconPath) {
   $lnk.Arguments = $arguments
   $lnk.WorkingDirectory = $workdir
   if (Test-Path $iconPath) { $lnk.IconLocation = $iconPath }
-  $lnk.Description = '米家 PC 客户端'
+  $lnk.Description = 'PC 控制端'
   $lnk.Save()
 }
 
 $desktop = [Environment]::GetFolderPath('Desktop')
-$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) '米家 PC'
+$startMenu = Join-Path ([Environment]::GetFolderPath('Programs')) 'PC 控制端'
 New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
 
-New-Shortcut (Join-Path $desktop '米家 PC.lnk') $pythonw '-m mihome_pc app' $dest $icon
-New-Shortcut (Join-Path $startMenu '米家 PC.lnk') $pythonw '-m mihome_pc app' $dest $icon
+# 同版本品牌更新也要清掉旧名称，避免桌面和开始菜单出现两个入口。
+$legacyDesktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '米家 PC.lnk'
+$legacyStartFolder = Join-Path ([Environment]::GetFolderPath('Programs')) '米家 PC'
+if (Test-Path $legacyDesktopLnk) { Remove-Item -Force $legacyDesktopLnk }
+if (Test-Path $legacyStartFolder) { Remove-Item -Recurse -Force $legacyStartFolder }
+
+New-Shortcut (Join-Path $desktop 'PC 控制端.lnk') $pythonw '-m mihome_pc app' $dest $icon
+New-Shortcut (Join-Path $startMenu 'PC 控制端.lnk') $pythonw '-m mihome_pc app' $dest $icon
 $unArgs = '-NoProfile -ExecutionPolicy Bypass -File ' + (Join-Path $dest 'uninstall.ps1')
-New-Shortcut (Join-Path $startMenu '卸载 米家 PC.lnk') 'powershell.exe' $unArgs $dest $icon
+New-Shortcut (Join-Path $startMenu '卸载 PC 控制端.lnk') 'powershell.exe' $unArgs $dest $icon
 
 $uninstall = @'
 # 卸载：删程序目录、桌面与开始菜单快捷方式（标准用户数据目录保留）
 $dest = Split-Path -Parent $MyInvocation.MyCommand.Path
-$desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '米家 PC.lnk'
-$startFolder = Join-Path ([Environment]::GetFolderPath('Programs')) '米家 PC'
+$desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'PC 控制端.lnk'
+$startFolder = Join-Path ([Environment]::GetFolderPath('Programs')) 'PC 控制端'
+$legacyDesktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '米家 PC.lnk'
+$legacyStartFolder = Join-Path ([Environment]::GetFolderPath('Programs')) '米家 PC'
 Get-Process -Name pythonw, python -ErrorAction SilentlyContinue |
   Where-Object { $_.Path -like ($dest + '*') } | Stop-Process -Force -ErrorAction SilentlyContinue
 if (Test-Path $desktopLnk) { Remove-Item -Force $desktopLnk }
 if (Test-Path $startFolder) { Remove-Item -Recurse -Force $startFolder }
+if (Test-Path $legacyDesktopLnk) { Remove-Item -Force $legacyDesktopLnk }
+if (Test-Path $legacyStartFolder) { Remove-Item -Recurse -Force $legacyStartFolder }
 Write-Host '标准数据目录没有删除：%USERPROFILE%\.mihome-pc'
 Start-Sleep -Seconds 2
 Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue
@@ -338,7 +353,7 @@ if (Test-Path $backup) { Remove-Item -Recurse -Force $backup -ErrorAction Silent
 
 Write-Host ''
 Write-Host '安装 / 升级完成，用户数据已保留：' -ForegroundColor Green
-Write-Host ('  桌面快捷方式: ' + (Join-Path $desktop '米家 PC.lnk'))
+Write-Host ('  桌面快捷方式: ' + (Join-Path $desktop 'PC 控制端.lnk'))
 Write-Host ('  开始菜单:     ' + $startMenu)
 Write-Host '  双击桌面图标即可启动（右下角出现托盘图标）'
 Write-Host ''
@@ -376,11 +391,7 @@ def hash_tree(root):
 
 
 def copy_package():
-    target = os.path.join(DIST, "mihome_pc")
-    if os.path.isdir(target):
-        shutil.rmtree(target)
-    shutil.copytree(os.path.join(ROOT, "mihome_pc"), target,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copy_project_package(ROOT, os.path.join(DIST, "mihome_pc"))
 
 
 def copy_interpreter():
@@ -442,6 +453,8 @@ def main(argv):
     # 安装到当前用户：桌面快捷方式 + 开始菜单 + 卸载脚本（不需要管理员）
     write_bytes("install.ps1", INSTALL_PS1.encode("utf-8-sig"))
     write_bytes("\u5b89\u88c5\u5230\u684c\u9762.cmd", INSTALL_CMD.encode("ascii"))
+    copy_legal_documents(ROOT, DIST)
+    assert_tree_clean(DIST)
 
     log("hashing ...")
     manifest = hash_tree(DIST)

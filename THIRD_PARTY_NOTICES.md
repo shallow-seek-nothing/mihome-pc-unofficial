@@ -1,7 +1,8 @@
 # 第三方资源与权利边界
 
-本仓库的 **MIT 许可证只覆盖项目作者拥有权利的原创代码、测试与原创文档**。
-下列第三方材料**不因为出现在本仓库或安装包中而自动转为 MIT**，其权利仍归各自权利人。
+本仓库的许可证只覆盖项目作者拥有权利的原创代码、测试、原创文档与原创图标。
+自 **0.7.38** 起，这些项目自有内容采用 **PolyForm Noncommercial 1.0.0**；**0.7.37 及更早版本**仍按当时发布的 MIT 条款提供，旧许可文本保存在 `LICENSES/MIT.txt`，不追溯撤销。
+下列第三方材料**不因为出现在本仓库或安装包中而自动转为项目许可证**，其权利仍归各自权利人。
 
 > 这份文件说明来源与边界，**不是授权**。任何一项再分发依据未确认的内容，都在最后单列为发布风险。
 
@@ -9,11 +10,12 @@
 
 | 资源 | 来源 / 生成方式 | 再分发依据 | 结论 |
 |---|---|---|---|
-| `mihome_pc/static/logo.png`、`favicon.png` | 本项目自制素材（仓库内无引用外部素材的生成脚本，也无第三方来源记录） | 项目自有 | MIT |
-| `mihome_pc/assets/mihome.ico` | 由 `logo.png` 经 `tools/make_icon.py` 生成 | 同 logo | MIT |
-| `mihome_pc/assets/dynamic_ranges.json` | 本项目实测：`tools/probe_fryer_limits.py` 对自有空气炸锅逐档写入后回读得到的跨属性范围 | 项目自有（测量数据） | MIT |
-| `mihome_pc/style.css`、`app.js`、`index.html` | 本项目手写（无框架、无第三方库） | 项目自有 | MIT |
-| `tests/fixtures/specs/*.json`、`mihome_pc/assets/demo/*.json` | 小米公开的 MIoT spec 实例（`miot-spec.org` 公开页面下载），仅作解析夹具与演示数据 | **未确认**：按公开规范数据使用，不声称 MIT | 见风险 2 |
+| `mihome_pc/static/logo.svg`、`logo.png`、`favicon.png` | 本项目原创“显示器＋控制节点”素材；`logo.svg` 为矢量源文件，位图由 `tools/make_logo.py` 生成 | 项目自有 | 0.7.38 起 PolyForm Noncommercial |
+| `mihome_pc/assets/mihome.ico` | 由原创 `logo.png` 经 `tools/make_logo.py` 生成 | 同 logo | 同项目许可证 |
+| `mihome_pc/assets/dynamic_ranges.json` | 本项目实测：`tools/probe_fryer_limits.py` 对自有空气炸锅逐档写入后回读得到的跨属性范围 | 项目自有（测量数据） | 同项目许可证 |
+| `mihome_pc/static/style.css`、`app.js`、`index.html` | 本项目手写（无框架、无第三方库） | 项目自有 | 同项目许可证 |
+| Windows `python38/LICENSE.txt` | 随内嵌 CPython 3.8.10 原样分发的 PSF 及其他组件许可文本 | 各组件原许可证 | 不改变、不覆盖 |
+| `tests/fixtures/specs/*.json`、`mihome_pc/assets/demo/*.json` | 小米公开的 MIoT spec 实例（`miot-spec.org` 公开页面下载），仅作解析夹具与演示数据 | **未确认**：按公开规范数据使用，不声称适用项目许可证 | 见风险 2 |
 | `mihome_pc/assets/catalog.json`、`catalog_categories.json` | `tools/make_catalog.py` 从**米家 APK 内置** `assets/device_config/plugin_config_cn-zh_cn` 提取（12,160 条型号元数据） | **未确认**：数据源自小米客户端，公开再分发依据不成立 | **不进入任何公开产物；见处理结论 1** |
 | `mihome_pc/assets/card_layouts.json` | `tools/make_card_layouts.py` 从**米家 APK 内置** `assets/cardControl/configDes.json`（缓存的云端响应）提取 | **未确认**：同上 | **不进入任何公开产物；见处理结论 1** |
 | 插件文案 / 故障码解释 | **运行时不随包分发**：用户登录后由本程序按型号从云端下载、解包 `resources.arsc`，只写入本地 `data/plugin-texts/` | 不涉及再分发 | — |

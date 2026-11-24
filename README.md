@@ -1,15 +1,22 @@
-# 米家 PC 客户端（非官方）
+# PC 控制端（非官方米家兼容工具）
 
-> 本项目为**社区开发的非官方桌面客户端**，与小米公司不存在隶属、授权或背书关系。
-> “米家”“Mi Home”及相关商标归其权利人所有。协议细节来自逆向分析与自有账户验证，
-> 不含小米官方客户端二进制、完整插件包或反编译源码。
+> 本项目为**社区独立开发的非官方桌面兼容工具**，与小米公司不存在隶属、授权、合作或背书关系，
+> 不替代官方服务。“米家”“Mi Home”“小米”仅用于客观描述兼容对象，相关商标权归其权利人所有；
+> 项目名称、原创图标和界面不使用米家标识。
+>
+> 仅面向个人用户在自有设备上的控制与兼容使用。凭据仅保存在本机，项目不收集凭据，
+> 不向作者或无关第三方上传，不提供账号代取 token、批量导入、预置 token 库或抓包辅助，
+> 也不规避登录风控、频率限制、设备指纹或其他额外技术防护。必须依赖云端的功能会在文档中如实说明。
+>
+> 代码依据公开协议资料、功能需求、独立逆向分析与自有账户验证另行编写，不是对反编译代码的翻译式改写；
+> 不含小米官方客户端二进制、完整插件包或反编译源码。设计文档与提交历史用于保留独立开发证据。
 
 > 当前为 **0.7.x 公开测试版（Beta）**，不是 1.0 稳定版；设备分页与部分真机兼容性仍需验证。
 
-Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标准库 Python + 手写网页 UI**，
-不需要装任何第三方包，也不依赖 Electron。协议来自对 `com.xiaomi.smarthome` 11.9.705 的完整逆向。
+Windows（Windows 7 SP1 起）与 Linux 上的米家设备控制端：**纯标准库 Python + 手写网页 UI**，
+不需要装任何第三方 Python 包，也不依赖 Electron。项目聚焦官方客户端未覆盖的 PC 使用场景。
 
-> 当前版本 **0.7.37**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
+> 当前版本 **0.7.38**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
 > [docs/04-功能对照.md](docs/04-功能对照.md)，逆向笔记在 [docs/reverse/](docs/reverse/)。
 
 ---
@@ -44,14 +51,14 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 
 ## 下载与安装
 
-**最新版从这里下载** —— [Releases · v0.7.37](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.37)
+**最新版从这里下载** —— [Releases · v0.7.38](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.38)
 
 | 平台 | 文件 | 怎么用 |
 |---|---|---|
-| **Windows 64 位** | `mihome-pc-0.7.37-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
-| **Windows 32 位** | `mihome-pc-0.7.37-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
+| **Windows 64 位** | `mihome-pc-0.7.38-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| **Windows 32 位** | `mihome-pc-0.7.38-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
 | Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
-| Linux | 暂无（等 Windows 反馈稳定后单独发） | 之后是 `.deb` 与 `.tar.gz` 两种 |
+| Linux | `mihome-pc_0.7.38_all.deb`、`mihome-pc-0.7.38-linux.tar.gz` | Debian 系安装 `.deb`；其他发行版使用 tarball |
 
 > **32 位支持**：当前版本继续支持 32 位 Windows，并提供独立 win32 便携包；后续更新会尽量延续
 > 32 位构建与基础兼容性验证。若运行环境或关键依赖变化影响支持范围，将在发布说明中明确注明。
@@ -61,7 +68,7 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 > **Win7 SP1 实测（0.7.36）**：x64／x86 均已在虚拟机中跑通 Demo。裸 Win7 SP1 需先安装
 > UCRT（KB2999226），并按系统安装要求重启；IE8 不支持，已验证 Firefox 115 ESR。
 > 本轮覆盖 Demo 服务、接口与界面，不等同于真实账号和真实设备全功能验证。
-> 0.7.37 的改动只在登录切换与账号面板，未在 Win7 复测。
+> 0.7.37 的登录改动与 0.7.38 的品牌、授权及打包改动均未在 Win7 单独复测。
 > 详见 [Win7 SP1 x64／x86 实测报告](docs/win7-sp1-compatibility.md)。
 
 ### 从旧版升级
@@ -85,7 +92,7 @@ python -m mihome_pc serve        # 未登录时是演示数据
 
 只需要 Python 3.8+，**没有任何第三方依赖**。
 
-运行时会在右下角（Linux 在系统托盘）出现米家图标：左键打开界面，**右键可打开数据目录 / 退出**。
+运行时会在右下角（Linux 在系统托盘）出现 PC 控制端图标：左键打开界面，**右键可打开数据目录 / 退出**。
 
 ## 登录与退出登录
 
@@ -136,16 +143,25 @@ python tools\make_card_layouts.py     # -> <数据目录>\catalog\card_layouts.j
 * **升级安装不会删除**这些文件（安装脚本只覆盖程序目录，数据目录保持不动）；
 * 生成的 JSON 请不要提交到公开仓库或再次分发。
 
-## 许可证
+## 许可证与使用边界
 
-MIT，版权人 **shallow-seek-nothing**。见 [LICENSE](LICENSE)。
+自 **0.7.38** 起，本项目自有内容采用 **PolyForm Noncommercial 1.0.0**，版权人
+**shallow-seek-nothing**。允许个人及其他非商业目的使用、修改和分发；商业使用需要另行取得权利人的授权。
+完整条款见 [LICENSE](LICENSE)。本项目从此属于**源码可见的非商业许可软件**，不再称为 OSI 意义上的开源软件。
 
-MIT **只覆盖本项目拥有权利的原创代码、测试与原创文档**。
-第三方资源（MIoT spec 夹具、型号目录、卡片布局等）的来源与边界见
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，它们不因放在本仓库中而自动转为 MIT。
+**0.7.37 及更早版本仍适用 MIT**，旧许可证保留在 [LICENSES/MIT.txt](LICENSES/MIT.txt)；
+本次切换不追溯撤销旧版本已经授予的权利。两个历史 Git 署名 `MolaChat` 与
+`shallow-seek-nothing` 已经版权人确认为同一人。
 
-> 第三方说明：本项目不包含小米的任何二进制、插件包或反编译产物；运行时下载的插件文案仅缓存在本地
-> `data/` 目录、不随仓库或安装包分发。米家、Mi Home、小米是其各自权利人的商标，本项目与小米无隶属关系。
+项目许可证只覆盖作者拥有权利的原创代码、测试、原创文档与原创图标。第三方资源的来源与边界见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)；NOTICE 用于说明权利边界，**不是授权，也不能替代授权**。
+内嵌 CPython 等第三方组件继续适用其原许可证。
+
+本项目不嵌广告、不做付费增值、不提供收费商业支持，也不接受与功能挂钩的捐赠。
+
+> 本项目按“现状”提供，不提供任何明示或默示担保；使用者应自行评估设备控制、账号和系统兼容性风险。
+> 免责声明不构成对任何依法应承担责任的豁免。运行时下载的插件文案仅缓存在本地 `data/` 目录，
+> 不随仓库或安装包分发。
 
 ## 已知限制（与 `docs/04-功能对照.md` 一致，都写清楚了，不假装支持）
 

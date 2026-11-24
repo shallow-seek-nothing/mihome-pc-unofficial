@@ -10,6 +10,7 @@ python packaging\build_win.py --clean     # Windows（Win7 SP1+，x64）
 python packaging\build_win32.py --clean   # Windows（Win7 SP1+，x86，使用 .toolchain\py38-x86）
 python packaging\build_deb.py             # Linux（.deb + 便携 tar.gz）
 python packaging\verify_deb.py            # 校验 .deb / tarball 结构
+python packaging\verify_distribution.py   # 四个产物的许可证与受限数据硬检查
 ```
 
 ## 产物
@@ -54,6 +55,8 @@ python packaging\verify_deb.py            # 校验 .deb / tarball 结构
 - `debian-binary` 内容 `2.0\n`
 - control 里 `Package/Version/Architecture/Depends/Maintainer/Description` 齐全
 - data 里启动器存在且**可执行位 0755**
-- 代码、`assets/catalog.json`、`assets/demo/`、`static/`、desktop、systemd、copyright 都在
-- **不含** `__pycache__`/`.pyc`、不含 `reverse/` 与 `tests/`
+- 代码、`assets/demo/`、`static/`、desktop、systemd、copyright 与法律文件都在
+- **不含** `__pycache__`/`.pyc`、型号目录、卡片布局、APK 或反编译内容
 - 每个随包 `.py` 都能被 `ast.parse` 解析
+- `verify_distribution.py` 另对 win64、win32、deb 和 tarball 逐个读取归档，
+  验证 PolyForm、历史 MIT、第三方说明及 Windows 内嵌 CPython 许可证

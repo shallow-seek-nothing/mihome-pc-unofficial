@@ -146,7 +146,7 @@ def run(port=0, open_browser=True, use_tray=None):
             _run_powershell_tray(url, VERSION)
         elif tray_mod.probe(_icon_path()):
             tray_mod.Tray(
-                title="\u7c73\u5bb6 PC", icon_path=_icon_path(), url=url,
+                title="PC \u63a7\u5236\u7aef", icon_path=_icon_path(), url=url,
                 version=VERSION, open_url=launcher.open_ui,
                 open_folder=lambda: launcher.open_path(_data_dir())).run()
         else:

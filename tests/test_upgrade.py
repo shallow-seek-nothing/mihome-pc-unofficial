@@ -27,6 +27,38 @@ class TestWindowsUpgrade(unittest.TestCase):
         self.assertIn("Where-Object { $_.Path -like ($dest + '*') }", script)
         self.assertNotIn("检测到已安装，先删除旧版本", script)
 
+    def test_branding_renames_shortcuts_and_removes_legacy_entries(self):
+        module = runpy.run_path(os.path.join(ROOT, "packaging", "build_win.py"))
+        script = module["INSTALL_PS1"]
+        self.assertIn("'PC 控制端.lnk'", script)
+        self.assertIn("'卸载 PC 控制端.lnk'", script)
+        self.assertIn("$lnk.Description = 'PC 控制端'", script)
+        self.assertIn("'米家 PC.lnk'", script)
+        self.assertIn("Remove-Item -Force $legacyDesktopLnk", script)
+        self.assertIn("Remove-Item -Recurse -Force $legacyStartFolder", script)
+
+    def test_linux_desktop_entry_uses_original_pc_controller_branding(self):
+        import tempfile
+        module = runpy.run_path(os.path.join(ROOT, "packaging", "build_deb.py"))
+        self.assertIn("Name=PC Controller", module["DESKTOP"])
+        self.assertIn("Name[zh_CN]=PC 控制端", module["DESKTOP"])
+        self.assertNotIn("Name=Mi Home", module["DESKTOP"])
+        with tempfile.TemporaryDirectory() as folder:
+            module["stage_tree"].__globals__["STAGE"] = folder
+            module["stage_tree"]()
+            icon = os.path.join(folder, "usr", "share", "icons", "hicolor",
+                                "256x256", "apps", "mihome-pc.png")
+            self.assertTrue(os.path.isfile(icon))
+            with open(os.path.join(ROOT, "mihome_pc", "static", "logo.png"),
+                      "rb") as source, open(icon, "rb") as packaged:
+                self.assertEqual(packaged.read(), source.read())
+            docs = os.path.join(folder, "usr", "share", "doc", "mihome-pc")
+            for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md",
+                             os.path.join("LICENSES", "MIT.txt")):
+                self.assertTrue(os.path.isfile(os.path.join(docs, relative)))
+            with open(os.path.join(docs, "copyright"), encoding="utf-8") as handle:
+                self.assertIn("License: PolyForm-Noncommercial-1.0.0", handle.read())
+
     def test_release_notes_explain_both_upgrade_paths(self):
         text = release_notes.render("0.7.37", [])
         self.assertIn("## 从旧版升级", text)

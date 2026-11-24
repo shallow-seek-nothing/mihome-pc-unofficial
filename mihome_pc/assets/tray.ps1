@@ -7,7 +7,7 @@ param(
   [Parameter(Mandatory=$true)][string]$Url,
   [Parameter(Mandatory=$true)][int]$AppPid,
   [string]$Icon = '',
-  [string]$Title = '米家 PC',
+  [string]$Title = 'PC 控制端',
   [string]$Folder = '',
   [string]$ReadyFile = ''
 )
@@ -28,7 +28,7 @@ $notify.Visible = $true
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 
 $open = New-Object System.Windows.Forms.ToolStripMenuItem
-$open.Text = '打开米家 PC'
+$open.Text = '打开 PC 控制端'
 $open.Add_Click({ [System.Diagnostics.Process]::Start($Url) })
 [void]$menu.Items.Add($open)
 

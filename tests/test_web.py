@@ -253,7 +253,9 @@ class TestSetProperty(WebTestCase):
 class TestStatic(WebTestCase):
     def test_index_served(self):
         body = self.fixture.get("/", raw=True).decode("utf-8")
-        self.assertIn("<title>", body)
+        self.assertIn("<title>PC 控制端</title>", body)
+        self.assertIn('<img class="logo" src="/static/logo.png" alt="PC 控制端">', body)
+        self.assertIn("<b>PC 控制端</b>", body)
         self.assertIn("app.js", body)
 
     def test_javascript_served(self):

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">PC 控制端原创图标：显示器与控制节点</title>
+  <defs>
+    <linearGradient id="background" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123F52"/>
+      <stop offset="1" stop-color="#14766F"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="60" fill="url(#background)"/>
+  <rect x="48" y="52" width="160" height="118" rx="16" fill="none" stroke="#F4FBFA" stroke-width="14"/>
+  <path d="M128 170v28M91 205h74" fill="none" stroke="#F4FBFA" stroke-width="14" stroke-linecap="round"/>
+  <path d="M88 105l74-20M88 105l42 37M162 85l-32 57" fill="none" stroke="#82E6D4" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="88" cy="105" r="13" fill="#82E6D4" stroke="#123F52" stroke-width="5"/>
+  <circle cx="162" cy="85" r="13" fill="#82E6D4" stroke="#123F52" stroke-width="5"/>
+  <circle cx="130" cy="142" r="13" fill="#82E6D4" stroke="#14766F" stroke-width="5"/>
+</svg>

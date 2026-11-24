@@ -116,6 +116,9 @@ def main():
           "systemd user unit present")
     check("usr/share/doc/%s/copyright" % PACKAGE in data_members,
           "copyright present")
+    for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md", "LICENSES/MIT.txt"):
+        check("usr/share/doc/%s/%s" % (PACKAGE, relative) in data_members,
+              "%s present" % relative)
 
     check(not any("__pycache__" in key or key.endswith(".pyc") for key in keys),
           "no __pycache__ / .pyc shipped")
@@ -151,6 +154,8 @@ def main():
             tar_names = [m.name for m in archive.getmembers()]
         check("install.sh" in tar_names, "install.sh present")
         check("lib/mihome_pc/cli.py" in tar_names, "package payload present")
+        for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md", "LICENSES/MIT.txt"):
+            check(relative in tar_names, "tarball has %s" % relative)
     else:
         check(False, "tarball exists")
 

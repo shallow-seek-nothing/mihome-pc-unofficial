@@ -40,7 +40,7 @@ def available():
 
 def build_menu(url, version=""):
     """Popup menu entries as ``[(id, label, enabled)]`` (pure, testable)."""
-    items = [(ID_OPEN, "\u6253\u5f00\u7c73\u5bb6 PC", True)]
+    items = [(ID_OPEN, "\u6253\u5f00 PC \u63a7\u5236\u7aef", True)]
     if url:
         items.append((0, url, False))
     if version:

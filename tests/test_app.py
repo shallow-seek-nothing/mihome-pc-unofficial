@@ -18,6 +18,8 @@ class TestMenu(unittest.TestCase):
         self.assertIn(-1, ids)                      # separator
         labels = [item[1] for item in items]
         self.assertTrue(any("0.6.0" in label for label in labels))
+        self.assertIn("打开 PC 控制端", labels)
+        self.assertNotIn("打开米家 PC", labels)
         actions = {item[0]: item[2] for item in items if item[0] > 0}
         self.assertTrue(actions[tray.ID_OPEN])
         self.assertTrue(actions[tray.ID_QUIT])

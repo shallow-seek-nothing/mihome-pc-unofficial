@@ -5,6 +5,31 @@
 
 ---
 
+## 0.7.38 — 2026-11-24
+
+品牌与授权边界更新；两个 Git 署名 `shallow-seek-nothing` 与 `MolaChat` 已经版权人确认为同一人。
+
+### 品牌与许可证
+
+* 去除随包的米家标识，网页、favicon、Windows 与 Linux 图标统一换成本项目原创的
+  「显示器＋控制节点」Logo；界面、托盘和系统快捷方式统一为「PC 控制端」。
+* Windows 覆盖升级会清理旧「米家 PC」快捷方式；包名、安装目录、数据目录和凭据位置不变。
+* 自本版起，项目自有代码、测试、原创文档与原创图标采用 **PolyForm Noncommercial 1.0.0**；
+  0.7.37 及更早版本仍适用 MIT，旧文本保留于 `LICENSES/MIT.txt`，不追溯撤销。
+* README 补齐非官方关系、个人自有设备用途、凭据边界、不规避额外技术防护、商标与免责声明。
+  项目不嵌广告、不做付费增值、不提供收费商业支持，也不接受与功能挂钩的捐赠。
+
+### 发布硬阻断与第三方许可
+
+* 新增 `packaging/distribution_policy.py`：打包前与打包后检查 APK 二进制、完整插件包、
+  反编译源码、中文型号目录、逐型号卡片布局等受限内容；`.gitignore` 不再被当作唯一防线。
+* 新增全平台产物校验，ZIP / DEB / TAR.GZ 均检查受限成员和随包法律文件。
+* 新许可证、旧 MIT 与第三方说明随所有产物分发；Debian copyright 同步更新。
+* Windows 内嵌 CPython 的 `python38/LICENSE.txt` 原样保留，PSF 等第三方许可不随主许可证改变。
+* MIoT spec 测试与演示夹具本版仍保留，NOTICE 明确其不构成再授权；后续可单独替换为自制夹具。
+
+---
+
 ## 0.7.37 — 2026-11-24
 
 修 [#1](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/issues/1)：

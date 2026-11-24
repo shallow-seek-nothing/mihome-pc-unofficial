@@ -1,7 +1,7 @@
 """Release consistency check: run before publishing a version.
 
 It answers \u201cis this tree actually releaseable?\u201d without a network or an account:
-version numbers agree everywhere, the three artifacts exist, the release note
+version numbers agree everywhere, the four artifacts exist, the release note
 matches them (sha256), and the deb structure verifies.
 
     python packaging/check_release.py
@@ -19,6 +19,7 @@ _CHANGELOG_HEAD = re.compile(r"^##\s+([0-9]+\.[0-9]+\.[0-9]+)", re.M)
 
 ARTIFACTS = (
     "mihome-pc-%s-portable-win64.zip",
+    "mihome-pc-%s-portable-win32.zip",
     "mihome-pc_%s_all.deb",
     "mihome-pc-%s-linux.tar.gz",
 )
@@ -78,7 +79,7 @@ def check(root=None):
         path = os.path.join(dist, name)
         present.append((name, os.path.isfile(path)))
     missing = [name for name, ok in present if not ok]
-    rows.append(("\u4e09\u4ef6\u4ea7\u7269", not missing,
+    rows.append(("\u56db\u4ef6\u4ea7\u7269", not missing,
                  "\u7f3a %s" % ", ".join(missing) if missing else "\u9f50\u5168"))
 
     note_path = release_note_path(dist, version)

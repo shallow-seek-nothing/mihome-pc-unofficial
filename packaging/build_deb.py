@@ -30,6 +30,11 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+
+from distribution_policy import (assert_tree_clean, copy_legal_documents,
+                                 copy_project_package)
+
 DIST = os.path.join(ROOT, "dist")
 STAGE = os.path.join(DIST, "_pkg")
 
@@ -76,19 +81,19 @@ exec "$PYTHON" -m mihome_pc "$@"
 
 DESKTOP = """[Desktop Entry]
 Type=Application
-Name=Mi Home
-Name[zh_CN]=\u7c73\u5bb6
+Name=PC Controller
+Name[zh_CN]=PC \u63a7\u5236\u7aef
 Comment=Control Mi Home devices from your PC
 Comment[zh_CN]=\u5728\u7535\u8111\u4e0a\u63a7\u5236\u7c73\u5bb6\u8bbe\u5907
 Exec=mihome-pc serve
 Icon=mihome-pc
 Terminal=false
 Categories=Utility;Network;
-Keywords=mihome;mi home;xiaomi;smarthome;
+Keywords=mihome;mi home;xiaomi;smarthome;pc controller;
 """
 
 SYSTEMD_UNIT = """[Unit]
-Description=Mi Home PC client (local web UI)
+Description=PC Controller for Mi Home devices (local web UI)
 Documentation=https://github.com/
 After=network-online.target
 
@@ -106,9 +111,11 @@ COPYRIGHT = """Format: https://www.debian.org/doc/packaging-manuals/copyright-fo
 Upstream-Name: mihome-pc
 
 Files: *
-Copyright: the mihome-pc authors
-License: MIT
+Copyright: 2026 shallow-seek-nothing
+License: PolyForm-Noncommercial-1.0.0
 
+Versions through 0.7.37 remain available under the historical MIT license;
+see LICENSES/MIT.txt. This copyright file does not relicense dependencies.
 Reverse engineering notes (protocol facts, not code) were derived from the
 public Mi Home APK for interoperability; no APK code or assets that are
 copyrighted by Xiaomi are redistributed in this package. Device names and
@@ -239,9 +246,7 @@ def stage_tree():
 
     # package payload
     lib_dir = os.path.join(STAGE, "usr", "lib", PACKAGE)
-    shutil.copytree(os.path.join(ROOT, "mihome_pc"),
-                    os.path.join(lib_dir, "mihome_pc"),
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copy_project_package(ROOT, os.path.join(lib_dir, "mihome_pc"))
 
     # launcher
     bin_dir = os.path.join(STAGE, "usr", "bin")
@@ -257,7 +262,14 @@ def stage_tree():
                  encoding="utf-8", newline="\n") as handle:
         handle.write(DESKTOP)
 
-    # docs
+    # Original PC controller icon used by the desktop entry.
+    icon_dir = os.path.join(STAGE, "usr", "share", "icons", "hicolor",
+                            "256x256", "apps")
+    os.makedirs(icon_dir)
+    shutil.copyfile(os.path.join(ROOT, "mihome_pc", "static", "logo.png"),
+                    os.path.join(icon_dir, PACKAGE + ".png"))
+
+    # docs and the license boundaries required by this version
     doc_dir = os.path.join(STAGE, "usr", "share", "doc", PACKAGE)
     os.makedirs(doc_dir)
     with open(os.path.join(doc_dir, "copyright"), "w",
@@ -266,6 +278,7 @@ def stage_tree():
     readme = os.path.join(ROOT, "README.md")
     if os.path.exists(readme):
         shutil.copyfile(readme, os.path.join(doc_dir, "README.md"))
+    copy_legal_documents(ROOT, doc_dir)
 
     # systemd user unit
     unit_dir = os.path.join(STAGE, "usr", "lib", "systemd", "user")
@@ -273,6 +286,7 @@ def stage_tree():
     with open(os.path.join(unit_dir, PACKAGE + ".service"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(SYSTEMD_UNIT)
+    assert_tree_clean(STAGE)
     return STAGE
 
 
@@ -350,18 +364,18 @@ def build_portable_tarball():
     if os.path.isdir(portable):
         shutil.rmtree(portable)
     os.makedirs(portable)
-    shutil.copytree(os.path.join(ROOT, "mihome_pc"),
-                    os.path.join(portable, "lib", "mihome_pc"),
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copy_project_package(ROOT, os.path.join(portable, "lib", "mihome_pc"))
     with open(os.path.join(portable, "install.sh"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(INSTALL_SH)
     with open(os.path.join(portable, "README.md"), "w",
                  encoding="utf-8", newline="\n") as handle:
-        handle.write("# Mi Home PC %s (Linux tarball)\n\n"
+        handle.write("# PC Controller %s (Linux tarball)\n\n"
                      "    sh install.sh              # into /usr\n"
                      "    sh install.sh --prefix ~/.local\n\n"
                      "Requires python3 >= 3.8. No other dependencies.\n" % VERSION)
+    copy_legal_documents(ROOT, portable)
+    assert_tree_clean(portable)
 
     names = []
     for base, dirs, files in os.walk(portable):

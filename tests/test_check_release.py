@@ -81,7 +81,7 @@ class TestCheck(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             self.build_tree(folder, artifacts=False)
             rows = check_release.check(folder)
-        self.assertFalse({n: ok for n, ok, _d in rows}["\u4e09\u4ef6\u4ea7\u7269"])
+        self.assertFalse({n: ok for n, ok, _d in rows}["\u56db\u4ef6\u4ea7\u7269"])
 
     def test_stale_hash_fails(self):
         with tempfile.TemporaryDirectory() as folder:

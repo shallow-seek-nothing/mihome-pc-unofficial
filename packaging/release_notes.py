@@ -21,6 +21,11 @@ KNOWN_LIMITS = (
 
 # 每个版本在说明顶部写「为什么升级」；没有条目的版本就跳过这段。
 HIGHLIGHTS = {
+    "0.7.38": (
+        "去除米家标识并换用原创 Logo，界面、托盘和系统入口统一为「PC 控制端」。",
+        "自 0.7.38 起采用 PolyForm Noncommercial 1.0.0；0.7.37 及更早版本仍适用 MIT。",
+        "增加全平台受限数据打包硬阻断；新许可证、旧 MIT 与第三方说明均随包分发。",
+    ),
     "0.7.37": (
         "修复 issue #1：新装用户扫码登录成功后仍停在演示模式。"
         "0.7.36 及以前的进程只在启动时读一次凭据，必须重启程序才生效；现在扫码确认后自动切换，"
@@ -70,7 +75,7 @@ def render(version, entries, limits=KNOWN_LIMITS, highlights=None):
     if highlights is None:
         highlights = HIGHLIGHTS.get(version, ())
     lines = [
-        "# \u7c73\u5bb6 PC \u5ba2\u6237\u7aef %s \u53d1\u5e03\u8bf4\u660e" % version,
+        "# PC \u63a7\u5236\u7aef %s \u53d1\u5e03\u8bf4\u660e" % version,
         "",
     ]
     if highlights:
