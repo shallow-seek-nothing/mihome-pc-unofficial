@@ -51,7 +51,12 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 | Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
 | Linux | 暂无（等 Windows 反馈稳定后单独发） | 之后是 `.deb` 与 `.tar.gz` 两种 |
 
-> 绿色版内置 Python 3.8，**解压即用**；当前是 **0.7.x Beta**，标记为预发布。
+> 绿色版内置 Python 3.8，在满足系统前置条件时**解压即用**；当前是 **0.7.x Beta**，标记为预发布。
+>
+> **Win7 SP1 实测（0.7.36）**：x64／x86 均已在虚拟机中跑通 Demo。裸 Win7 SP1 需先安装
+> UCRT（KB2999226），并按系统安装要求重启；IE8 不支持，已验证 Firefox 115 ESR。
+> 本轮覆盖 Demo 服务、接口与界面，不等同于真实账号和真实设备全功能验证。
+> 详见 [Win7 SP1 x64／x86 实测报告](docs/win7-sp1-compatibility.md)。
 
 ### 从源码跑
 
@@ -133,8 +138,9 @@ MIT **只覆盖本项目拥有权利的原创代码、测试与原创文档**。
   这张表不在 miot-spec JSON 里，需要另做逆向。定时类自动化不受影响（`sc_id: 12` 是固定的）。
 * **添加设备**：按需求不做。
 * **消息推送**：没有常驻长连接；侧栏未读数每 45 秒轮询一次（页面不可见时跳过），不是实时推送。
-* **Win7**：按 Chromium 109 + Python 3.8 的兼容线写，理论上可运行，本机没有 Win7 环境实测；
-  愿意帮忙的话，跑一下 `dist` 里的绿色版并反馈即可。
+* **Win7**：0.7.36 已在 Win7 SP1 x64／x86 虚拟机完成 **Demo 实测**；当前包需系统安装 UCRT
+  并按安装要求重启，IE8 不支持，Firefox 115 ESR 已验证。真实账号与设备、Chrome 109、
+  无 KB2533623 对照及随包内置 UCRT 尚未验证，详见 [实测报告](docs/win7-sp1-compatibility.md)。
 
 ## 架构
 
@@ -172,5 +178,6 @@ python packaging\check_release.py      # 发版前一致性检查（版本/产�
 * [docs/阶段总结.md](docs/阶段总结.md) —— **逐条对照目标要求**：做到了什么、证据在哪、还剩什么
 * [docs/03-现状与待办.md](docs/03-现状与待办.md) —— 当前状态与下一步
 * [docs/04-功能对照.md](docs/04-功能对照.md) —— 对照米家 App 的功能矩阵
+* [docs/win7-sp1-compatibility.md](docs/win7-sp1-compatibility.md) —— Win7 SP1 x64／x86 实测结论、前置条件与未验证边界
 * [docs/reverse/](docs/reverse/) —— 协议、spec、插件、局域网四层逆向笔记
 * [packaging/README.md](packaging/README.md) —— 三个平台的打包细节与坑
