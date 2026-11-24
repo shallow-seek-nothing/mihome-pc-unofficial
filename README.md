@@ -47,10 +47,14 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家桌面客户端：**纯标�
 
 | 平台 | 文件 | 怎么用 |
 |---|---|---|
-| **Windows** | `mihome-pc-0.7.36-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| **Windows 64 位** | `mihome-pc-0.7.36-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| **Windows 32 位** | `mihome-pc-0.7.36-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
 | Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
 | Linux | 暂无（等 Windows 反馈稳定后单独发） | 之后是 `.deb` 与 `.tar.gz` 两种 |
 
+> **32 位支持**：当前版本继续支持 32 位 Windows，并提供独立 win32 便携包；后续更新会尽量延续
+> 32 位构建与基础兼容性验证。若运行环境或关键依赖变化影响支持范围，将在发布说明中明确注明。
+>
 > 绿色版内置 Python 3.8，在满足系统前置条件时**解压即用**；当前是 **0.7.x Beta**，标记为预发布。
 >
 > **Win7 SP1 实测（0.7.36）**：x64／x86 均已在虚拟机中跑通 Demo。裸 Win7 SP1 需先安装
@@ -162,7 +166,8 @@ mihome_pc/
 ```powershell
 python -m unittest discover -s tests   # 400+ 用例，全部离线
 python -m ruff check .                 # 目标 py38；注意别显式给路径，会绕过 exclude
-python packaging\build_win.py --clean  # 出 Windows 产物
+python packaging\build_win.py --clean  # 出 Windows x64 产物
+python packaging\build_win32.py --clean  # 出 Windows x86 产物
 python packaging\build_deb.py          # 出 Linux 产物
 python packaging\verify_deb.py         # 产物结构校验
 python packaging\check_release.py      # 发版前一致性检查（版本/产物/哈希）

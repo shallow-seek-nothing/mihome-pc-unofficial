@@ -7,6 +7,7 @@
 
 ```powershell
 python packaging\build_win.py --clean     # Windows（Win7 SP1+，x64）
+python packaging\build_win32.py --clean   # Windows（Win7 SP1+，x86，使用 .toolchain\py38-x86）
 python packaging\build_deb.py             # Linux（.deb + 便携 tar.gz）
 python packaging\verify_deb.py            # 校验 .deb / tarball 结构
 ```
@@ -15,7 +16,8 @@ python packaging\verify_deb.py            # 校验 .deb / tarball 结构
 
 | 文件 | 大小 | 说明 |
 |---|---|---|
-| `dist/mihome-pc-win64/` | ~18 MB | 嵌入式 Python 3.8.10 + 代码 + 资源，双击 `mihome.vbs` 即用 |
+| `dist/mihome-pc-win64/` | ~18 MB | 嵌入式 Python 3.8.10 x64 + 代码 + 资源，双击 `mihome.vbs` 即用 |
+| `dist/mihome-pc-win32/` | ~14 MB | 嵌入式 Python 3.8.10 x86 + 代码 + 资源；Win7 需系统 UCRT |
 | `dist/mihome-pc_0.4.0_all.deb` | ~513 KB | Debian/Ubuntu 系；`Depends: python3 (>= 3.8)` |
 | `dist/mihome-pc-0.4.0-linux.tar.gz` | ~508 KB | 通用；`sh install.sh [--prefix DIR]` |
 
