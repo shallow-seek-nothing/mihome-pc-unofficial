@@ -474,7 +474,7 @@ def main(argv):
 
     log("zipping ...")
     import zipfile
-    zip_path = os.path.join(ROOT, "dist", "mihome-pc-%s-portable-win32.zip" % VERSION)
+    zip_path = os.path.join(ROOT, "dist", "pc-controller-%s-portable-win32.zip" % VERSION)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for base, dirs, files in os.walk(DIST):
             dirs[:] = sorted(d for d in dirs if d not in ("data", "logs", "__pycache__"))

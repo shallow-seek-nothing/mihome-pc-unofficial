@@ -53,8 +53,8 @@ class TestRender(unittest.TestCase):
 
     def test_install_steps_use_the_version(self):
         text = self.render()
-        self.assertIn("mihome-pc_9.9.9_all.deb", text)
-        self.assertIn("mihome-pc-9.9.9-linux.tar.gz", text)
+        self.assertIn("pc-controller_9.9.9_all.deb", text)
+        self.assertIn("pc-controller-9.9.9-linux.tar.gz", text)
         self.assertNotIn("%s", text, "no unformatted placeholders")
 
     def test_limits_are_listed(self):
@@ -65,7 +65,7 @@ class TestRender(unittest.TestCase):
     def test_highlights_only_for_versions_that_have_them(self):
         self.assertNotIn("\u672c\u6b21\u91cd\u70b9", self.render())
         with_notes = release_notes.render(
-            "0.7.38", [("mihome-pc-0.7.38-portable-win64.zip", 10, "c" * 64)],
+            "0.7.38", [("pc-controller-0.7.38-portable-win64.zip", 10, "c" * 64)],
             highlights=("\u4fee\u590d demo \u5361\u4f4f",))
         self.assertIn("## \u672c\u6b21\u91cd\u70b9", with_notes)
         self.assertIn("\u4fee\u590d demo \u5361\u4f4f", with_notes)

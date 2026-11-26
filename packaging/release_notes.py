@@ -21,6 +21,11 @@ KNOWN_LIMITS = (
 
 # 每个版本在说明顶部写「为什么升级」；没有条目的版本就跳过这段。
 HIGHLIGHTS = {
+    "0.7.40": (
+        "统一日志与诊断层：请求 ID 三处同值、密钥脱敏、失败弹框升级诊断框、report 诊断包、stop 留痕。",
+        "并入 0.7.39 的 deb 打包修复（目录条目/权限/控制字段）与 Linux 菜单图标、tarball 桌面集成。",
+        "产物文件名改用 pc-controller 前缀；界面与图标沿用 0.7.38 的 PC 控制端原创品牌，许可证仍为 PolyForm Noncommercial 1.0.0。",
+    ),
     "0.7.38": (
         "去除米家标识并换用原创 Logo，界面、托盘和系统入口统一为「PC 控制端」。",
         "自 0.7.38 起采用 PolyForm Noncommercial 1.0.0；0.7.37 及更早版本仍适用 MIT。",
@@ -61,7 +66,7 @@ def collect(dist_dir, version):
         return []
     found = []
     for name in sorted(os.listdir(dist_dir)):
-        if not name.startswith("mihome-pc") or version not in name:
+        if not name.startswith(("pc-controller", "mihome-pc")) or version not in name:
             continue
         path = os.path.join(dist_dir, name)
         if not os.path.isfile(path):
@@ -99,7 +104,7 @@ def render(version, entries, limits=KNOWN_LIMITS, highlights=None):
         "",
         "## Windows\uff08\u7eff\u8272\u7248\uff09",
         "",
-        "1. \u89e3\u538b `mihome-pc-%s-portable-win64.zip`\uff1b" % version,
+        "1. \u89e3\u538b `pc-controller-%s-portable-win64.zip`\uff1b" % version,
         ("2. \u53cc\u51fb `mihome.vbs`\uff08\u6216 "
          "`\u5b89\u88c5\u5230\u684c\u9762.cmd` \u5efa\u5feb\u6377\u65b9\u5f0f\uff09\uff1b"),
         "3. \u7ec6\u8282\u770b\u76ee\u5f55\u91cc\u7684 `\u4f7f\u7528\u987b\u77e5.txt`\u3002",
@@ -120,9 +125,9 @@ def render(version, entries, limits=KNOWN_LIMITS, highlights=None):
         "",
         "## Linux",
         "",
-        ("`sudo dpkg -i mihome-pc_%s_all.deb`\uff0c\u6216\u76f4\u63a5\u89e3\u538b"
+        ("`sudo dpkg -i pc-controller_%s_all.deb`\uff0c\u6216\u76f4\u63a5\u89e3\u538b"
          % version),
-        ("`mihome-pc-%s-linux.tar.gz` \u8fd0\u884c\uff08\u9700\u7cfb\u7edf Python 3.8+\uff09\u3002"
+        ("`pc-controller-%s-linux.tar.gz` \u8fd0\u884c\uff08\u9700\u7cfb\u7edf Python 3.8+\uff09\u3002"
          % version),
         "",
         "## \u672c\u7248\u672c\u6ca1\u505a\u7684\u4e8b\uff08\u5148\u8bf4\u6e05\u695a\uff09",

@@ -30,6 +30,11 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+
+from distribution_policy import (assert_tree_clean, copy_legal_documents,
+                                 copy_project_package)
+
 DIST = os.path.join(ROOT, "dist")
 STAGE = os.path.join(DIST, "_pkg")
 
@@ -48,6 +53,7 @@ def _read_version():
 # Version comes from the package itself, so the UI and the build agree.
 VERSION = _read_version()
 PACKAGE = "mihome-pc"
+DIST_PREFIX = "pc-controller"  # 对外产物文件名用新品牌，包名/数据目录不变
 ARCH = "all"
 MAINTAINER = "the mihome-pc authors <shallow-seek-nothing@users.noreply.github.com>"
 HOMEPAGE = "https://github.com/shallow-seek-nothing/mihome-pc-unofficial"
@@ -80,8 +86,8 @@ exec "$PYTHON" -m mihome_pc "$@"
 
 DESKTOP = """[Desktop Entry]
 Type=Application
-Name=Mi Home
-Name[zh_CN]=\u7c73\u5bb6
+Name=PC Controller
+Name[zh_CN]=PC \u63a7\u5236\u7aef
 Comment=Control Mi Home devices from your PC
 Comment[zh_CN]=\u5728\u7535\u8111\u4e0a\u63a7\u5236\u7c73\u5bb6\u8bbe\u5907
 # `app` is the desktop entry point (re-uses a running instance); `serve` would
@@ -91,12 +97,12 @@ TryExec=mihome-pc
 Icon=mihome-pc
 Terminal=false
 Categories=Utility;Network;
-Keywords=mihome;mi home;xiaomi;smarthome;
+Keywords=mihome;mi home;xiaomi;smarthome;pc controller;
 StartupWMClass=MiHome
 """
 
 SYSTEMD_UNIT = """[Unit]
-Description=Mi Home PC client (local web UI)
+Description=PC Controller for Mi Home devices (local web UI)
 Documentation=%s
 After=network-online.target
 
@@ -114,9 +120,11 @@ COPYRIGHT = """Format: https://www.debian.org/doc/packaging-manuals/copyright-fo
 Upstream-Name: mihome-pc
 
 Files: *
-Copyright: the mihome-pc authors
-License: MIT
+Copyright: 2026 shallow-seek-nothing
+License: PolyForm-Noncommercial-1.0.0
 
+Versions through 0.7.37 remain available under the historical MIT license;
+see LICENSES/MIT.txt. This copyright file does not relicense dependencies.
 Reverse engineering notes (protocol facts, not code) were derived from the
 public Mi Home APK for interoperability; no APK code or assets that are
 copyrighted by Xiaomi are redistributed in this package. Device names and
@@ -294,9 +302,7 @@ def stage_tree():
 
     # package payload
     lib_dir = os.path.join(STAGE, "usr", "lib", PACKAGE)
-    shutil.copytree(os.path.join(ROOT, "mihome_pc"),
-                    os.path.join(lib_dir, "mihome_pc"),
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copy_project_package(ROOT, os.path.join(lib_dir, "mihome_pc"))
 
     # launcher
     bin_dir = os.path.join(STAGE, "usr", "bin")
@@ -312,7 +318,14 @@ def stage_tree():
                  encoding="utf-8", newline="\n") as handle:
         handle.write(DESKTOP)
 
-    # docs
+    # Original PC controller icon used by the desktop entry.
+    icon_dir = os.path.join(STAGE, "usr", "share", "icons", "hicolor",
+                            "256x256", "apps")
+    os.makedirs(icon_dir)
+    shutil.copyfile(os.path.join(ROOT, "mihome_pc", "static", "logo.png"),
+                    os.path.join(icon_dir, PACKAGE + ".png"))
+
+    # docs and the license boundaries required by this version
     doc_dir = os.path.join(STAGE, "usr", "share", "doc", PACKAGE)
     os.makedirs(doc_dir)
     with open(os.path.join(doc_dir, "copyright"), "w",
@@ -321,6 +334,7 @@ def stage_tree():
     readme = os.path.join(ROOT, "README.md")
     if os.path.exists(readme):
         shutil.copyfile(readme, os.path.join(doc_dir, "README.md"))
+    copy_legal_documents(ROOT, doc_dir)
 
     # icons: the .desktop entry references Icon=mihome-pc, so the PNGs must be
     # installed under hicolor/ or the menu shows a blank square
@@ -341,6 +355,7 @@ def stage_tree():
     with open(os.path.join(unit_dir, PACKAGE + ".service"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(SYSTEMD_UNIT)
+    assert_tree_clean(STAGE)
     return STAGE
 
 
@@ -397,7 +412,7 @@ def build_deb():
     build_tar_gz(data_tar, stage, executables=("usr/bin/" + PACKAGE,))
     build_control_tar(control_tar, _installed_size(stage))
 
-    deb_path = os.path.join(DIST, "%s_%s_%s.deb" % (PACKAGE, VERSION, ARCH))
+    deb_path = os.path.join(DIST, "%s_%s_%s.deb" % (DIST_PREFIX, VERSION, ARCH))
     with open(control_tar, "rb") as control_handle:
         control_blob = control_handle.read()
     with open(data_tar, "rb") as data_handle:
@@ -423,15 +438,13 @@ def build_portable_tarball():
     if os.path.isdir(portable):
         shutil.rmtree(portable)
     os.makedirs(portable)
-    shutil.copytree(os.path.join(ROOT, "mihome_pc"),
-                    os.path.join(portable, "lib", "mihome_pc"),
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    copy_project_package(ROOT, os.path.join(portable, "lib", "mihome_pc"))
     with open(os.path.join(portable, "install.sh"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(INSTALL_SH)
     with open(os.path.join(portable, "README.md"), "w",
                  encoding="utf-8", newline="\n") as handle:
-        handle.write("# Mi Home PC %s (Linux tarball)\n\n"
+        handle.write("# PC Controller %s (Linux tarball)\n\n"
                      "    sh install.sh              # into /usr\n"
                      "    sh install.sh --prefix ~/.local\n\n"
                      "Requires python3 >= 3.8. No other dependencies.\n"
@@ -453,8 +466,10 @@ def build_portable_tarball():
         if not os.path.isdir(icon_dir):
             os.makedirs(icon_dir)
         shutil.copyfile(source, os.path.join(icon_dir, PACKAGE + ".png"))
+    copy_legal_documents(ROOT, portable)
+    assert_tree_clean(portable)
 
-    tar_path = os.path.join(DIST, "%s-%s-linux.tar.gz" % (PACKAGE, VERSION))
+    tar_path = os.path.join(DIST, "%s-%s-linux.tar.gz" % (DIST_PREFIX, VERSION))
     build_tar_gz(tar_path, portable, executables=("install.sh",), prefix="")
     shutil.rmtree(portable)
     return tar_path

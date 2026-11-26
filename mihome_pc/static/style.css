@@ -430,6 +430,37 @@ input[type=range] { width: 170px; accent-color: var(--accent); }
   display: grid; place-items: center; background: var(--bg); border-radius: 13px;
 }
 .qr-wrap img { width: 200px; height: 200px; }
+#login-modal .modal-box {
+  position: relative; overflow: hidden; width: min(410px, 92vw); padding: 28px 28px 22px;
+}
+#login-modal .modal-box::before {
+  content: ""; position: absolute; left: 50%; top: -105px; width: 250px; height: 190px;
+  transform: translateX(-50%); border-radius: 50%; background: var(--accent-soft);
+  opacity: .62; filter: blur(30px); pointer-events: none;
+}
+#login-title { position: relative; margin-top: 4px; line-height: 1.5; letter-spacing: .035em; }
+#login-subtitle { position: relative; margin: 5px 0 0; color: var(--text-dim); }
+.login-loading { position: relative; height: 132px; display: grid; place-items: center; }
+.loading-spinner {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 3px solid var(--accent-soft); border-top-color: var(--accent);
+  box-shadow: 0 0 28px var(--accent-soft), inset 0 0 12px var(--accent-soft);
+  animation: login-loading-spin .9s linear infinite;
+}
+.loading-spinner::after {
+  content: ""; display: block; width: 8px; height: 8px; margin: 15px;
+  border-radius: 50%; background: var(--accent); opacity: .8;
+}
+#login-msg { min-height: 22px; margin: 0 0 14px; line-height: 1.65; }
+#login-msg.login-error { color: var(--danger); }
+#login-modal .modal-actions { justify-content: center; gap: 10px; }
+#login-modal .modal-actions .ghost { min-width: 88px; }
+#login-retry { border-color: var(--accent); color: var(--accent); }
+#login-retry:hover { background: var(--accent-soft); }
+@keyframes login-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner { animation-duration: 2s; }
+}
 .toast {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
   background: rgba(20, 22, 26, .94); color: #fff; padding: 9px 17px;

@@ -24,8 +24,8 @@ sys.path.insert(0, HERE)
 from build_deb import PACKAGE, VERSION, read_ar  # noqa: E402
 
 DIST = os.path.join(ROOT, "dist")
-DEB = os.path.join(DIST, "%s_%s_all.deb" % (PACKAGE, VERSION))
-TARBALL = os.path.join(DIST, "%s-%s-linux.tar.gz" % (PACKAGE, VERSION))
+DEB = os.path.join(DIST, "%s_%s_all.deb" % ("pc-controller", VERSION))
+TARBALL = os.path.join(DIST, "%s-%s-linux.tar.gz" % ("pc-controller", VERSION))
 
 REQUIRED_FIELDS = ("Package", "Version", "Architecture", "Depends", "Maintainer",
                    "Description")
@@ -181,6 +181,9 @@ def main():
           "systemd user unit present")
     check("usr/share/doc/%s/copyright" % PACKAGE in data_members,
           "copyright present")
+    for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md", "LICENSES/MIT.txt"):
+        check("usr/share/doc/%s/%s" % (PACKAGE, relative) in data_members,
+              "%s present" % relative)
 
     check(not any("__pycache__" in key or key.endswith(".pyc") for key in keys),
           "no __pycache__ / .pyc shipped")
@@ -217,6 +220,8 @@ def main():
             tar_names = [m.name for m in entries]
         check("install.sh" in tar_names, "install.sh present")
         check("lib/mihome_pc/cli.py" in tar_names, "package payload present")
+        for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md", "LICENSES/MIT.txt"):
+            check(relative in tar_names, "tarball has %s" % relative)
         check(any(m.isdir() for m in entries),
               "tarball has directory entries (same unpacking trap as the deb)")
         check(any(n.endswith("/%s.desktop" % PACKAGE) or n == "%s.desktop" % PACKAGE

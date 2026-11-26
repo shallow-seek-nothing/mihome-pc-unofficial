@@ -18,10 +18,10 @@ _README_LINE = re.compile(r"\u5f53\u524d\u7248\u672c\s*\*\*([0-9.]+)\*\*")
 _CHANGELOG_HEAD = re.compile(r"^##\s+([0-9]+\.[0-9]+\.[0-9]+)", re.M)
 
 ARTIFACTS = (
-    "mihome-pc-%s-portable-win64.zip",
-    "mihome-pc-%s-portable-win32.zip",
-    "mihome-pc_%s_all.deb",
-    "mihome-pc-%s-linux.tar.gz",
+    "pc-controller-%s-portable-win64.zip",
+    "pc-controller-%s-portable-win32.zip",
+    "pc-controller_%s_all.deb",
+    "pc-controller-%s-linux.tar.gz",
 )
 
 
