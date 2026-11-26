@@ -474,6 +474,14 @@ def cmd_app(args):
     from . import app as app_mod
     return app_mod.run(port=args.port, open_browser=not args.no_browser)
 
+
+def cmd_stop(args):
+    """Stop the instance recorded in ``app.lock`` (Linux has no tray)."""
+    from . import app as app_mod
+    return app_mod.stop(wait_seconds=getattr(args, "wait", 5.0))
+
+
+
 def environment_report(data_path=None, plugin_root=None):
     """Where things live and whether they are usable (for bug reports).
 
@@ -520,6 +528,19 @@ def environment_report(data_path=None, plugin_root=None):
                 texts += 1
     rows.append(("\u63d2\u4ef6\u6587\u6848", "ok" if texts else "off",
                  "%d \u4e2a\u578b\u53f7\u5df2\u7f13\u5b58" % texts))
+
+    # 排障第一屏：日志在哪、什么级别、有没有崩溃记录
+    from . import logs
+    log_file = logs.log_path(data_path)
+    has_log = os.path.isfile(log_file)
+    rows.append(("日志", "ok" if has_log else "off",
+                 log_file if has_log else "%s（还没有日志）" % log_file))
+    rows.append(("日志级别", "ok", logs.current_level()))
+    log_dir = os.path.dirname(log_file)
+    crashes = sorted(n for n in (os.listdir(log_dir) if os.path.isdir(log_dir) else [])
+                     if n.startswith("crash-"))
+    rows.append(("崩溃记录", "warn" if crashes else "ok",
+                 ("%d 个，最近 %s" % (len(crashes), crashes[-1])) if crashes else "无"))
     return rows
 
 
@@ -560,6 +581,9 @@ def cmd_selftest(args):
 
 def build_parser():
     parser = argparse.ArgumentParser(prog="mihome_pc", description="米家 PC 客户端（协议层 CLI）")
+    parser.add_argument("--log-level", default=None,
+                        choices=("debug", "info", "warning", "error"),
+                        help="日志级别（也可用环境变量 MIHOME_PC_LOG_LEVEL；默认 info）")
     sub = parser.add_subparsers(dest="command")
 
     login = sub.add_parser("login", help="扫码登录并保存凭据")
@@ -615,11 +639,29 @@ def build_parser():
     app_cmd.add_argument("--port", type=int, default=0)
     app_cmd.add_argument("--no-browser", action="store_true")
     app_cmd.set_defaults(func=cmd_app)
+    stop_cmd = sub.add_parser(
+        "stop", help="停止已在运行的实例（Linux 无托盘时的退出入口）")
+    stop_cmd.add_argument("--wait", type=float, default=5.0,
+                          help="等待进程退出的秒数（默认 5）")
+    stop_cmd.set_defaults(func=cmd_stop)
     selftest = sub.add_parser("selftest", help="离线自检")
     selftest.add_argument("--env", action="store_true",
                           help="同时打印数据目录/凭据/插件文案的状态")
     selftest.set_defaults(func=cmd_selftest)
+    report = sub.add_parser(
+        "report", help="打包日志与环境信息（报 bug 用，不含凭据与设备 token）")
+    report.add_argument("--out", default=None, help="输出 zip 路径（默认放数据目录）")
+    report.set_defaults(func=cmd_report)
     return parser
+
+
+def cmd_report(args):
+    """把日志 + 环境信息打成 zip：用户报 bug 时只需要发这一个文件。"""
+    from . import logs
+    path = logs.report(target=args.out)
+    print("诊断包：%s" % path)
+    print("（含日志与版本/系统信息，不含凭据、不含设备 token）")
+    return 0
 
 
 def _cmd_plugin_sync(args):
@@ -654,4 +696,15 @@ def main(argv=None):
     if not getattr(args, "func", None):
         parser.print_help()
         return 2
-    return args.func(args) or 0
+    from . import logs
+    logs.setup(level=getattr(args, "log_level", None))
+    logs.install_excepthook()
+    try:
+        return args.func(args) or 0
+    except KeyboardInterrupt:
+        print("\nbye")
+        return 130
+    except Exception as exc:                       # 命令行入口：把日志路径指给用户
+        logs.get("cli").error("command %s failed: %s: %s", args.command,
+                              type(exc).__name__, exc)
+        raise

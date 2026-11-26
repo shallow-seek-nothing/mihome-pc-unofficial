@@ -33,6 +33,9 @@ except ImportError:                       # pragma: no cover
     from urllib import urlencode
 
 from . import sign
+from .. import logs
+
+_log = logs.get("cloud")
 
 # Verified against a real account on 2026-11-19:
 #   https://api.io.mi.com/app    -> accepted  (sid=xiaomiio token works)
@@ -208,12 +211,18 @@ class CloudClient:
                 request, timeout=self.timeout)
             raw = response.read()
             encoding = response.headers.get("MIOT-CONTENT-ENCODING")
+            http_status = getattr(response, "status", getattr(response, "code", 200))
         except HTTPError as exc:
             raw = exc.read()
             encoding = exc.headers.get("MIOT-CONTENT-ENCODING") if exc.headers else None
             if not raw:
+                _log.warning("http %s on %s after %dms", exc.code, path,
+                             int((time.time() - started) * 1000))
                 raise CloudError("HTTP %s on %s" % (exc.code, path))
+            http_status = exc.code
         except URLError as exc:
+            _log.warning("network error on %s after %dms: %s", path,
+                         int((time.time() - started) * 1000), exc.reason)
             raise CloudError("network error on %s: %s" % (path, exc.reason))
         elapsed = time.time() - started
 
@@ -229,10 +238,14 @@ class CloudClient:
 
         if isinstance(result, dict) and "error" in result and "code" not in result:
             # e.g. a proxy or a protocol violation from the gateway itself
+            _log.warning("call %s http=%s failed after %dms: %s", path, http_status,
+                         int(elapsed * 1000), result.get("error"))
             raise CloudError("%s: %s" % (path, result.get("error")))
         if isinstance(result, dict) and result.get("code") not in (None, 0):
             code = result.get("code")
             message = result.get("message") or result.get("desc") or ""
+            _log.warning("call %s http=%s code=%s after %dms: %s", path, http_status,
+                         code, int(elapsed * 1000), message or "(no message)")
             if code in (2, 3, 401):
                 raise AuthError("auth error: %s (code %s)" % (message, code),
                                 code=code, payload=result)
@@ -240,6 +253,10 @@ class CloudClient:
                              code=code, payload=result)
         self.last_error = None
         self.last_elapsed = elapsed
+        # 成功也要留一行：排障时"到底调没调、多久、成功码是多少"同样关键。
+        _log.info("call %s http=%s code=%s in %dms (%d bytes)", path, http_status,
+                  (result or {}).get("code") if isinstance(result, dict) else "-",
+                  int(elapsed * 1000), len(text))
         return result.get("result", result) if isinstance(result, dict) else result
 
     # -- convenience wrappers -----------------------------------------

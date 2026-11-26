@@ -15,15 +15,19 @@ and easy to unit test.
 """
 import ipaddress
 import json
+import logging
 import ntpath
 import os
+import signal
 import socket
 import threading
 import time
+import traceback
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
+from .. import logs
 from ..domain import availability
 from ..domain import labels
 from ..domain import limits
@@ -54,21 +58,14 @@ FIXTURE_DIR = _SHIPPED_DEMO if os.path.isdir(_SHIPPED_DEMO) else _TEST_FIXTURES
 _LOG_LOCK = threading.Lock()
 
 
-def log_line(message):
-    """Append to <data>/logs/web.log so a user can report what happened.
+def log_line(message, level="info"):
+    """写一行 web 日志。
 
-    The handler is silent on stdout (a pythonw process has none), so write
-    failures need a file to land in or they are invisible.
+    保留这个函数名是因为本文件有一百来个调用点；级别默认 ``info``，
+    失败分支显式传 ``warning`` / ``error``。真正的时间戳、模块名、请求 id
+    由 :mod:`mihome_pc.logs` 统一补齐，别在这里自己拼时间。
     """
-    try:
-        directory = os.path.join(_data_dir(), "logs")
-        if not os.path.isdir(directory):
-            os.makedirs(directory)
-        path = os.path.join(directory, "web.log")
-        with _LOG_LOCK, open(path, "a", encoding="utf-8") as handle:
-            handle.write("%s  %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), message))
-    except OSError:
-        pass
+    logs.get("web").log(logs.LEVELS.get(str(level).lower(), logging.INFO), message)
 
 
 CONTENT_TYPES = {
@@ -2162,6 +2159,11 @@ def _fetch_image(login, url):
 class _Handler(BaseHTTPRequestHandler):
     server_version = "mihome-pc/0.1"
 
+    # 每个请求一个短 id：日志、响应头 X-Request-Id、错误 JSON 三处同值，
+    # 用户截图或复制弹框内容时，开发能直接在日志里定位这一次请求。
+    request_id = ""
+    _status_sent = 0
+
     # injected by AppServer
     provider_state = None      # {"provider", "stamp", "follow", "lock"}
     login_flow = None
@@ -2212,15 +2214,24 @@ class _Handler(BaseHTTPRequestHandler):
     def _send(self, status, body, content_type="application/json; charset=utf-8"):
         if isinstance(body, str):
             body = body.encode("utf-8")
+        self._status_sent = status
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Request-Id", self.request_id or "-")
         self.end_headers()
         with contextlib.suppress(BrokenPipeError, ConnectionResetError):
             self.wfile.write(body)
 
     def _json(self, payload, status=200):
+        if status >= 400 and isinstance(payload, dict) and "error" in payload:
+            # 错误响应统一带上 request_id：弹框里展示它，用户一贴就能对上日志。
+            payload = dict(payload)
+            payload.setdefault("request_id", self.request_id or "-")
+            log_line("api %s %s -> %d: %s" % (
+                self.command, self.path.split("?")[0], status, payload.get("error")),
+                "warning")
         self._send(status, json.dumps(payload, ensure_ascii=False))
 
     # -- account -------------------------------------------------------
@@ -2413,6 +2424,41 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- routes --------------------------------------------------------
     def do_GET(self):                              # noqa: N802 - stdlib signature
+        self._serve("GET", self._handle_get)
+
+    def do_POST(self):                             # noqa: N802 - stdlib signature
+        self._serve("POST", self._handle_post)
+
+    def _serve(self, method, route):
+        """一次请求的公共外壳：请求 id、访问日志、耗时、未捕获异常。"""
+        self.request_id = logs.new_request_id()
+        self._status_sent = 0
+        started = time.time()
+        with logs.request_scope(self.request_id):
+            try:
+                route()
+            except (BrokenPipeError, ConnectionResetError):
+                raise
+            except Exception:
+                log_line("unhandled %s %s\n%s"
+                         % (method, self.path.split("?")[0], traceback.format_exc()),
+                         "error")
+                with contextlib.suppress(Exception):
+                    if not self._status_sent:
+                        self._json({"error": "internal error", "request_id": self.request_id}, 500)
+                raise
+            finally:
+                elapsed = int((time.time() - started) * 1000)
+                status = self._status_sent or 0
+                target = self.path.split("?")[0]
+                level = "debug" if target.startswith("/static/") or target == "/" else "info"
+                if status >= 500:
+                    level = "error"
+                elif status >= 400:
+                    level = "warning"
+                log_line("%s %s -> %s in %dms" % (method, target, status or "-", elapsed), level)
+
+    def _handle_get(self):                         # noqa: N802 - stdlib signature
         if not self._request_allowed():
             return
         path = self.path.split("?")[0]
@@ -2516,7 +2562,7 @@ class _Handler(BaseHTTPRequestHandler):
             log_line("GET %s failed: %s: %s" % (path, type(exc).__name__, exc))
             self._json({"error": "%s: %s" % (type(exc).__name__, exc)}, 500)
 
-    def do_POST(self):                             # noqa: N802 - stdlib signature
+    def _handle_post(self):                        # noqa: N802 - stdlib signature
         if not self._request_allowed(write=True):
             return
         path = self.path.split("?")[0]
@@ -2962,16 +3008,23 @@ def make_provider(credentials_path=None):
 
 
 def serve(port=0, open_browser=True, credentials_path=None, quiet=True):
+    from .. import lockfile
+    logs.setup()
     resolved = credentials_path or os.path.join(_data_dir(), "credentials.json")
-    log_line("serve: data=%s credentials=%s exists=%s" % (
-        _data_dir(), resolved, os.path.exists(resolved)))
+    log_line("serve: data=%s credentials=%s exists=%s log=%s" % (
+        _data_dir(), resolved, os.path.exists(resolved), logs.log_path()))
     provider = make_provider(credentials_path)
     server = create_server(provider=None, port=port,
                            credentials_path=credentials_path, quiet=quiet)
     host, bound_port = server.server_address[0], server.server_address[1]
     url = "http://%s:%d/" % (host, bound_port)
+    # 记下自己，`mihome-pc stop` 才有得可停（Linux 没有托盘可点）
+    lockfile.write(url)
+    log_line("listening %s provider=%s pid=%d log_level=%s" % (
+        url, "demo" if provider.demo else "cloud", os.getpid(), logs.current_level()))
     print("mihome-pc web \u5df2\u542f\u52a8: %s" % url)
     print("provider: %s" % ("cloud" if not provider.demo else "demo"))
+    print("log: %s" % logs.log_path())
     if not provider.demo:
         print("plugins: \u540e\u53f0\u8865\u5168\u6587\u6848\u8868")
         sync_plugins_in_background(provider)
@@ -2979,6 +3032,18 @@ def serve(port=0, open_browser=True, credentials_path=None, quiet=True):
         from .launcher import open_ui
         opened = open_ui(url)
         print("window: %s" % (opened or "please open the URL manually"))
+
+    def _on_signal(signum, _frame):
+        # 优雅退出：日志里留下"是谁让它停的"，Linux 上 mihome-pc stop 走 SIGTERM
+        log_line("signal %s -> shutdown" % signum)
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    for signum in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)):
+        if signum is None:
+            continue
+        with contextlib.suppress(ValueError, OSError, RuntimeError):
+            signal.signal(signum, _on_signal)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -2986,6 +3051,8 @@ def serve(port=0, open_browser=True, credentials_path=None, quiet=True):
         print("bye")
     finally:
         server.server_close()
+        lockfile.drop(own=True)
+        log_line("stopped")
     return 0
 
 

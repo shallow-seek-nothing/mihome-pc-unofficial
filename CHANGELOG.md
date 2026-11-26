@@ -5,28 +5,128 @@
 
 ---
 
-## 0.7.38 — 2026-11-24
+## 0.7.40 — 2026-11-26
 
-品牌与授权边界更新；两个 Git 署名 `shallow-seek-nothing` 与 `MolaChat` 已经版权人确认为同一人。
+把「日志与排障」做成一层基础设施。起因很直接：0.7.38 的 deb 装不上，
+现场只有一句 dpkg 报错和自己的 `print`，没有级别、没有请求 id、没有耗时，
+排障全靠猜。
 
-### 品牌与许可证
+### 1. 统一日志层 `mihome_pc/logs.py`（零第三方依赖）
 
-* 去除随包的米家标识，网页、favicon、Windows 与 Linux 图标统一换成本项目原创的
-  「显示器＋控制节点」Logo；界面、托盘和系统快捷方式统一为「PC 控制端」。
-* Windows 覆盖升级会清理旧「米家 PC」快捷方式；包名、安装目录、数据目录和凭据位置不变。
-* 自本版起，项目自有代码、测试、原创文档与原创图标采用 **PolyForm Noncommercial 1.0.0**；
-  0.7.37 及更早版本仍适用 MIT，旧文本保留于 `LICENSES/MIT.txt`，不追溯撤销。
-* README 补齐非官方关系、个人自有设备用途、凭据边界、不规避额外技术防护、商标与免责声明。
-  项目不嵌广告、不做付费增值、不提供收费商业支持，也不接受与功能挂钩的捐赠。
+一行一条，格式固定：
 
-### 发布硬阻断与第三方许可
+```
+2026-11-26T19:26:15.007+08:00 WARNING web      ec383171 api GET /api/device -> 400: did required
+└──────── 时间（ISO8601，毫秒 + 时区）· 级别 · 模块 · 请求 id · 正文 ────────┘
+```
 
-* 新增 `packaging/distribution_policy.py`：打包前与打包后检查 APK 二进制、完整插件包、
-  反编译源码、中文型号目录、逐型号卡片布局等受限内容；`.gitignore` 不再被当作唯一防线。
-* 新增全平台产物校验，ZIP / DEB / TAR.GZ 均检查受限成员和随包法律文件。
-* 新许可证、旧 MIT 与第三方说明随所有产物分发；Debian copyright 同步更新。
-* Windows 内嵌 CPython 的 `python38/LICENSE.txt` 原样保留，PSF 等第三方许可不随主许可证改变。
-* MIoT spec 测试与演示夹具本版仍保留，NOTICE 明确其不构成再授权；后续可单独替换为自制夹具。
+* **时间带毫秒和时区偏移**（`isoformat(timespec="milliseconds")`），跨机器不用再对时；
+  原来 `web.log` 只有秒级、无时区。
+* **模块**：`web` / `cloud` / `app` / `cli` / `auth` / `crash`，一眼看出是哪一层。
+* **滚动**：`RotatingFileHandler`，默认 2 MiB × 5 份，日志不会无限长大。
+* **级别**：`mihome-pc --log-level debug|info|warning|error`，或环境变量
+  `MIHOME_PC_LOG_LEVEL`；默认 info。
+* 旧的 `web.log`（`log_line()` 直接拼字符串）被这条路取代，调用点保留函数名但走统一格式。
+
+### 2. 密钥脱敏（写盘前统一做）
+
+`serviceToken` / `passToken` / `ssecurity` / 设备 `token` / `Cookie` / `Bearer` 一律打码成
+`a1b2…(32)`（保留前 4 位 + 长度，够判断是哪一把又不可复用）。
+**错误码、did、接口路径不脱敏** —— 这些恰恰是排障要看的（第一版差点把 `code` 也打掉）。
+
+### 3. 请求可追踪：请求 id 贯穿三处
+
+每个 HTTP 请求生成 8 位 `request_id`：
+
+* 日志每行带 `req=xxxxxxxx`（线程作用域，云端调用自动继承）；
+* 响应头 `X-Request-Id`；
+* 失败 JSON 里的 `request_id`。
+
+三处同值 → 用户把弹框里的 id 贴出来，开发 `grep` 一下就是这一次请求的完整链路。
+HTTP 层同时记录访问日志（方法、路径、状态、耗时），`GET /static/*` 降级到 DEBUG 免得刷屏。
+
+### 4. 云端调用留痕
+
+`xiaomi/cloud.py` 每次 `post()` 都记：接口路径、HTTP 状态、协议 `code`、耗时、响应字节数；
+失败记 `WARNING` 并带 code/message。**成功也记**——「到底调没调、多久、返回码」同样是排障信息。
+
+### 5. 失败弹框升级为「诊断框」
+
+界面里 32 处「xxx 失败：消息」的 toast 换成诊断框：标题（哪个操作）、人话说明、
+`请求 ID / HTTP 状态 / 错误码 / 接口路径`，以及**一键复制**的格式化诊断文本（含版本号）。
+`Esc` / 点遮罩可关；不支持 `navigator.clipboard` 时退化为 `execCommand('copy')`。
+
+### 6. 崩溃现场与诊断包
+
+* `install_excepthook()`：未捕获异常写 `logs/crash-<时间>.log`（环境信息 + 完整 traceback），
+  pythonw 下没有控制台时这是唯一现场。
+* `mihome-pc report`：把 `environment.txt`（版本/Python/系统/数据目录/日志级别/有无凭据）+
+  全部日志打成 zip，**不含凭据与设备 token**；报 issue 只发这一个文件。
+* `selftest --env` 增加「日志 / 日志级别 / 崩溃记录」三行。
+* `serve` 现在会处理 `SIGTERM`/`SIGHUP` 并记一行「signal N -> shutdown」，所以
+  `mihome-pc stop` 在 Linux 上留下的是可解释的日志，不是被硬杀。
+
+### 7. 测试
+
+新增 18 条日志断言（格式、请求 id 作用域与嵌套、四类脱敏、错误码不被误伤、滚动、
+级别过滤、环境信息无凭据、诊断包不含凭据）+ 3 条 HTTP 断言
+（400/404 都带 `X-Request-Id` 且与 body 的 `request_id` 一致、每次请求 id 不同）。
+全量单测 583 条。
+
+文档：新增 [docs/05-日志与排障.md](docs/05-日志与排障.md)（路径、格式、级别、脱敏、
+弹框字段、报 bug 标准动作、排障对照表、改代码时的约定）。
+
+---
+
+## 0.7.39 — 2026-11-26
+
+修 laptop 的发布阻塞单 `MH-20261126-01`：0.7.38 的 **deb 在 Debian 系装不上**，
+另两条是 Linux 侧的文档与打包缺口。
+
+### 1. [P0] deb 装不上：`data.tar` 只有文件、没有目录条目
+
+* **现象**：`apt install` / `dpkg -i` 都报
+  `无法创建 /usr/lib/mihome-pc/mihome_pc/__init__.py.dpkg-new: No such file or directory`，
+  装完停在 `install ok not-installed`；`dpkg-deb -c` 显示 **63 个文件、0 个目录条目**。
+* **根因**：`build_tar_gz()` 只 `os.walk` 出文件逐个写进 tar，从不写目录条目；
+  dpkg 解包时**不会替文件建父目录**，于是第一个需要新建的目录就夭折。
+  同一条产线的 v2.0.0 有 9 个目录条目，所以属 0.7.x 的回归，与发行版无关。
+* **修法**：目录与文件都显式入包——目录条目前置排序（`./`、`./usr/`、`./usr/bin/`…），
+  文件继承其后；顺带把权限归一（目录 0755、普通文件 0644、`/usr/bin/mihome-pc` 0755），
+  不再把构建机（Windows）的 0666 原样打进包里。
+* **控制字段去占位符**：`Maintainer` 换成真实地址，`Homepage` 指向仓库主页
+  （原来分别是 `noreply@example.invalid` 和 `https://github.com/`）。
+* **CI 门禁**：`packaging/verify_deb.py` 增加「目录条目 > 0」「每个文件的父目录都在包内」
+  「无 0666/0777」「图标齐全」「控制字段无占位符」等断言；新增
+  `.github/workflows/check.yml`，在 Debian/Ubuntu runner 上**真的 `sudo dpkg -i` 一次**
+  再跑 `mihome-pc selftest`，装不上直接红。
+
+### 2. [P1] Linux 其实没有托盘 —— 文档与实现对齐，并补 `mihome-pc stop`
+
+* `tray.py` 是 `ctypes` + `Shell_NotifyIconW` 的 Windows 实现，文件头自己写着 Linux 下
+  `available()` 为 False；README 却写「Linux 在系统托盘」。现在 README 按平台分写：
+  Windows 有托盘（左键界面 / 右键数据目录与退出），**Linux 明确没有托盘**。
+* 新增 `mihome-pc stop`（`mihome_pc/app.py: stop()`，锁文件逻辑抽到 `mihome_pc/lockfile.py`）：
+  读数据目录的 `app.lock` 找 PID 与 URL，先 HTTP 探活再 `SIGTERM`，顺手清理过期锁。
+  `serve` 现在也会写 `app.lock`（此前只有 `app` 写），所以两种启动方式都能停。
+  锁用 `os.replace` 原子写入；Windows 上**不用** `os.kill(pid, 0)` 做探活
+  （CPython 在 Windows 把任何非 CTRL_C 信号映射成 `TerminateProcess`）。
+
+### 3. [P2] tarball 补桌面集成
+
+* tarball 内新增 `share/applications/mihome-pc.desktop` 与
+  `share/icons/hicolor/{48x48,128x128,256x256}/apps/mihome-pc.png`；
+  `install.sh` 把它们装到 `<prefix>/share/…`，`--prefix ~/.local` 同样生效，
+  并 best-effort 刷新 icon cache / desktop database。
+* `.desktop` 的 `Exec` 改为 `mihome-pc app`（有窗口语义的入口），补 `TryExec`；
+  deb 里也安装 PNG 图标——之前 `.desktop` 指向 `Icon=mihome-pc` 但包里根本没有 PNG。
+* 图标由 `packaging/make_icons.py` 从 `static/logo.png` 生成（开发侧用 Pillow；
+  产物已入库，构建本身仍然零第三方依赖）。
+
+### 4. 顺手
+
+* tarball 的 launcher 默认参数从 `serve` 改成 `app`，与 .desktop 一致。
+* 版本号 0.7.37 → 0.7.39（0.7.38 已发但包有问题，直接跳版重发）。
 
 ---
 
@@ -54,9 +154,7 @@
   remove + rename 中间有空档，读者会看到"未登录"并瞬间切回演示），
   tmp 名带 pid，写完 fsync。
 * 前端：扫码 ok 后不再盲等 600ms，而是轮询 `/api/status`
-  直到真的不是演示模式再 `boot()`；账号与设备加载期间显示
-  「永远相信美好的事情即将发生」过渡页、当前进度与加载动画。
-  只有设备列表返回后才关闭；失败会显示原因并提供重试，不再留下无提示的空白等待。
+  直到真的不是演示模式再 `boot()`；约 3 秒仍没切过来才提示按 F5。
   `focus` / `visibilitychange` 也核对账号状态（手机上扫码后切回窗口立刻切换）；
   `boot()` 把 status 与 devices 分开兜底，云端失败时深链接与账号面板仍然可用。
 
@@ -83,24 +181,17 @@
 * `out/verify_portable_0_7_37.py`：解压**打包产物**，用包内 python38 起服务，
   验证「新装是演示 → 写入凭据即切 CloudProvider → 退出回演示」，
   并跑 `tools/regression.py`（11 项只读巡检，0 failed）。x64 与 x86 两个包各跑一遍。
-* 本机真实覆盖升级：安装器自动结束旧米家进程，标准凭据哈希升级前后一致，
-  安装目录回退 `data` 中的哨兵文件保留，暂存目录无残留；目录锁短暂未释放时
-  有限重试生效。加载页成功／失败两条路径通过 Node 行为测试。
-* 全量 **556** 条 unittest OK（跳过 3），`node --check` 通过。
+* 全量 **553** 条 unittest OK（跳过 3），`ruff` 全绿，`check_release.py` 全过。
 
 ### 工程
 
-* 版本 0.7.37；测试 540 → **556**。
+* 版本 0.7.37；测试 540 → **553**。
 * 复核补丁（提交后复查发现）：账号面板曾把「退出登录」/`credentials_error`
   渲染两遍，已删掉重复；扫码线程「查 generation 再写凭据」与退出登录的
   `reset()` 改用同一把锁，迟到的扫码结果不会把文件写回来；`credentials.json`
   是合法 JSON 但不是对象（`[1, 2]`、`"x"`）时 `Credentials.from_dict` 抛的是
   `AttributeError`，现在也按「损坏」退回演示；测试里屏蔽掉切 provider 触发的
   后台插件同步，单元测试不再出网。
-* 首次版本升级：x64／x86 安装器只结束米家自己的进程，先把新版完整复制到
-  同级暂存目录，再备份并替换旧程序；失败时恢复旧版。标准用户数据不动，
-  旧安装目录里的回退 `data` 也会迁回。README、包内使用须知和发布说明分别
-  写明安装版覆盖升级与绿色版复制 `data` 的步骤。
 * `build_win.py`（x64）与 `build_win32.py`（x86）都出了便携包，外加 deb / tar.gz；
   `release_notes.py` 的产物表自动收录本版本全部文件（4 个），`check_release.py` 全过。
 * 两个便携包分别用**包内解释器**验证：x64 是 64 位、x86 是 32 位，

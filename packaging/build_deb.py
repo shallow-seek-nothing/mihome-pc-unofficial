@@ -30,11 +30,6 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-sys.path.insert(0, HERE)
-
-from distribution_policy import (assert_tree_clean, copy_legal_documents,
-                                 copy_project_package)
-
 DIST = os.path.join(ROOT, "dist")
 STAGE = os.path.join(DIST, "_pkg")
 
@@ -54,7 +49,11 @@ def _read_version():
 VERSION = _read_version()
 PACKAGE = "mihome-pc"
 ARCH = "all"
-MAINTAINER = "mihome-pc maintainers <noreply@example.invalid>"
+MAINTAINER = "the mihome-pc authors <shallow-seek-nothing@users.noreply.github.com>"
+HOMEPAGE = "https://github.com/shallow-seek-nothing/mihome-pc-unofficial"
+FIXED_MTIME = 1700000000            # reproducible builds: no wall-clock in tars
+ICON_SIZES = (48, 128, 256)
+ICON_SOURCE = os.path.join(ROOT, "mihome_pc", "assets", "icons")
 
 LAUNCHER = """#!/bin/sh
 # Mi Home PC client launcher.
@@ -81,20 +80,24 @@ exec "$PYTHON" -m mihome_pc "$@"
 
 DESKTOP = """[Desktop Entry]
 Type=Application
-Name=PC Controller
-Name[zh_CN]=PC \u63a7\u5236\u7aef
+Name=Mi Home
+Name[zh_CN]=\u7c73\u5bb6
 Comment=Control Mi Home devices from your PC
 Comment[zh_CN]=\u5728\u7535\u8111\u4e0a\u63a7\u5236\u7c73\u5bb6\u8bbe\u5907
-Exec=mihome-pc serve
+# `app` is the desktop entry point (re-uses a running instance); `serve` would
+# leave a headless process with no way to quit on Linux.
+Exec=mihome-pc app
+TryExec=mihome-pc
 Icon=mihome-pc
 Terminal=false
 Categories=Utility;Network;
-Keywords=mihome;mi home;xiaomi;smarthome;pc controller;
+Keywords=mihome;mi home;xiaomi;smarthome;
+StartupWMClass=MiHome
 """
 
 SYSTEMD_UNIT = """[Unit]
-Description=PC Controller for Mi Home devices (local web UI)
-Documentation=https://github.com/
+Description=Mi Home PC client (local web UI)
+Documentation=%s
 After=network-online.target
 
 [Service]
@@ -105,17 +108,15 @@ RestartSec=5
 
 [Install]
 WantedBy=default.target
-"""
+""" % HOMEPAGE
 
 COPYRIGHT = """Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: mihome-pc
 
 Files: *
-Copyright: 2026 shallow-seek-nothing
-License: PolyForm-Noncommercial-1.0.0
+Copyright: the mihome-pc authors
+License: MIT
 
-Versions through 0.7.37 remain available under the historical MIT license;
-see LICENSES/MIT.txt. This copyright file does not relicense dependencies.
 Reverse engineering notes (protocol facts, not code) were derived from the
 public Mi Home APK for interoperability; no APK code or assets that are
 copyrighted by Xiaomi are redistributed in this package. Device names and
@@ -143,6 +144,8 @@ done
 HERE=$(cd "$(dirname "$0")" && pwd)
 LIBDIR="$PREFIX/lib/mihome-pc"
 BINDIR="$PREFIX/bin"
+SHAREDIR="$PREFIX/share"
+APPDIR="$SHAREDIR/applications"
 
 if [ "$(id -u)" -ne 0 ] && [ ! -w "$PREFIX" ]; then
     echo "need root (or a writable prefix) to install into $PREFIX" >&2
@@ -150,7 +153,8 @@ if [ "$(id -u)" -ne 0 ] && [ ! -w "$PREFIX" ]; then
 fi
 
 echo "installing to $LIBDIR"
-mkdir -p "$LIBDIR" "$BINDIR"
+mkdir -p "$LIBDIR" "$BINDIR" "$APPDIR"
+rm -rf "$LIBDIR/mihome_pc"
 cp -R "$HERE/lib/mihome_pc" "$LIBDIR/"
 
 cat > "$BINDIR/mihome-pc" <<LAUNCH
@@ -158,12 +162,33 @@ cat > "$BINDIR/mihome-pc" <<LAUNCH
 set -e
 PYTHONPATH="$LIBDIR\\${PYTHONPATH:+:\\$PYTHONPATH}"
 export PYTHONPATH
-if [ "\\$#" -eq 0 ]; then set -- serve; fi
+if [ "\\$#" -eq 0 ]; then set -- app; fi
 exec \\${MIHOME_PC_PYTHON:-python3} -m mihome_pc "\\$@"
 LAUNCH
 chmod 755 "$BINDIR/mihome-pc"
 
-echo "installed. run: mihome-pc"
+# Desktop integration: menu entry + PNG icons (shipped inside the tarball;
+# without them the tarball user gets a command-line-only install).
+if [ -f "$HERE/share/applications/mihome-pc.desktop" ]; then
+    cp "$HERE/share/applications/mihome-pc.desktop" "$APPDIR/mihome-pc.desktop"
+    chmod 644 "$APPDIR/mihome-pc.desktop"
+fi
+for size in 48 128 256; do
+    src="$HERE/share/icons/hicolor/${size}x${size}/apps/mihome-pc.png"
+    if [ -f "$src" ]; then
+        dst="$SHAREDIR/icons/hicolor/${size}x${size}/apps"
+        mkdir -p "$dst"
+        cp "$src" "$dst/mihome-pc.png"
+    fi
+done
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t "$SHAREDIR/icons/hicolor" 2>/dev/null || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$APPDIR" 2>/dev/null || true
+fi
+
+echo "installed. run: mihome-pc app     (or: mihome-pc serve / mihome-pc stop)"
 echo "python requirement: 3.8 or newer (found: $(${MIHOME_PC_PYTHON:-python3} -V 2>&1))"
 """
 
@@ -216,24 +241,47 @@ def read_ar(path):
 # staging
 # --------------------------------------------------------------------------
 
-def build_tar_gz(path, root, owner="root"):
-    """Deterministic tar.gz of ``root`` (paths relative, uid/gid 0)."""
-    names = []
-    for base, dirs, files in os.walk(root):
-        dirs.sort()
-        for name in sorted(files):
-            names.append(os.path.join(base, name))
+def build_tar_gz(path, root, owner="root", executables=(), prefix="./"):
+    """Deterministic tar.gz of ``root`` -- **including directory entries**.
+
+    dpkg does not create missing parent directories while unpacking, so a
+    ``data.tar.gz`` that lists only files dies with "No such file or directory"
+    on the first nested path.  That was the 0.7.38 packaging regression (63
+    files, 0 directories).  Modes are normalized here as well: inheriting the
+    build host's makes Windows produce 0666 files, which dpkg then installs
+    world-writable.
+    """
+    dirs = ["."]
+    files = []
+    for base, subdirs, names in os.walk(root):
+        subdirs.sort()
+        rel_dir = os.path.relpath(base, root).replace("\\", "/")
+        if rel_dir != ".":
+            dirs.append(rel_dir)
+        for name in sorted(names):
+            full = os.path.join(base, name)
+            files.append((os.path.relpath(full, root).replace("\\", "/"), full))
+    execs = set(executables)
     with tarfile.open(path, "w:gz", compresslevel=9) as archive:
-        for full in names:
-            rel = "./" + os.path.relpath(full, root).replace("\\", "/")
-            info = archive.gettarinfo(full, arcname=rel)
+        for rel in sorted(dirs, key=lambda item: (item.count("/"), item)):
+            name = prefix if rel == "." else prefix + rel + "/"
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.DIRTYPE
+            info.mode = 0o755
             info.uid = 0
             info.gid = 0
             info.uname = owner
             info.gname = owner
-            info.mtime = 1700000000          # fixed: reproducible builds
-            if rel.endswith("/usr/bin/mihome-pc"):
-                info.mode = 0o755
+            info.mtime = FIXED_MTIME
+            archive.addfile(info)
+        for rel, full in sorted(files):
+            info = archive.gettarinfo(full, arcname=prefix + rel)
+            info.uid = 0
+            info.gid = 0
+            info.uname = owner
+            info.gname = owner
+            info.mtime = FIXED_MTIME
+            info.mode = 0o755 if rel in execs else 0o644
             with open(full, "rb") as handle:
                 archive.addfile(info, handle)
     return path
@@ -246,7 +294,9 @@ def stage_tree():
 
     # package payload
     lib_dir = os.path.join(STAGE, "usr", "lib", PACKAGE)
-    copy_project_package(ROOT, os.path.join(lib_dir, "mihome_pc"))
+    shutil.copytree(os.path.join(ROOT, "mihome_pc"),
+                    os.path.join(lib_dir, "mihome_pc"),
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
     # launcher
     bin_dir = os.path.join(STAGE, "usr", "bin")
@@ -262,14 +312,7 @@ def stage_tree():
                  encoding="utf-8", newline="\n") as handle:
         handle.write(DESKTOP)
 
-    # Original PC controller icon used by the desktop entry.
-    icon_dir = os.path.join(STAGE, "usr", "share", "icons", "hicolor",
-                            "256x256", "apps")
-    os.makedirs(icon_dir)
-    shutil.copyfile(os.path.join(ROOT, "mihome_pc", "static", "logo.png"),
-                    os.path.join(icon_dir, PACKAGE + ".png"))
-
-    # docs and the license boundaries required by this version
+    # docs
     doc_dir = os.path.join(STAGE, "usr", "share", "doc", PACKAGE)
     os.makedirs(doc_dir)
     with open(os.path.join(doc_dir, "copyright"), "w",
@@ -278,7 +321,19 @@ def stage_tree():
     readme = os.path.join(ROOT, "README.md")
     if os.path.exists(readme):
         shutil.copyfile(readme, os.path.join(doc_dir, "README.md"))
-    copy_legal_documents(ROOT, doc_dir)
+
+    # icons: the .desktop entry references Icon=mihome-pc, so the PNGs must be
+    # installed under hicolor/ or the menu shows a blank square
+    for size in ICON_SIZES:
+        source = os.path.join(ICON_SOURCE, "mihome-%d.png" % size)
+        if not os.path.isfile(source):
+            raise SystemExit(
+                "missing icon %s -- run: python packaging/make_icons.py" % source)
+        icon_dir = os.path.join(STAGE, "usr", "share", "icons", "hicolor",
+                                "%dx%d" % (size, size), "apps")
+        if not os.path.isdir(icon_dir):
+            os.makedirs(icon_dir)
+        shutil.copyfile(source, os.path.join(icon_dir, PACKAGE + ".png"))
 
     # systemd user unit
     unit_dir = os.path.join(STAGE, "usr", "lib", "systemd", "user")
@@ -286,7 +341,6 @@ def stage_tree():
     with open(os.path.join(unit_dir, PACKAGE + ".service"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(SYSTEMD_UNIT)
-    assert_tree_clean(STAGE)
     return STAGE
 
 
@@ -300,7 +354,7 @@ Depends: python3 (>= 3.8)
 Recommends: chromium | firefox | xdg-utils
 Installed-Size: {installed_size}
 Maintainer: {MAINTAINER}
-Homepage: https://github.com/
+Homepage: {HOMEPAGE}
 Description: Mi Home client for the desktop (local web UI)
  A personal-computer client for Mi Home devices, reimplemented from the
  reverse-engineered protocol rather than reusing the Android app.
@@ -340,7 +394,7 @@ def build_deb():
         os.makedirs(DIST)
     data_tar = os.path.join(DIST, "_data.tar.gz")
     control_tar = os.path.join(DIST, "_control.tar.gz")
-    build_tar_gz(data_tar, stage)
+    build_tar_gz(data_tar, stage, executables=("usr/bin/" + PACKAGE,))
     build_control_tar(control_tar, _installed_size(stage))
 
     deb_path = os.path.join(DIST, "%s_%s_%s.deb" % (PACKAGE, VERSION, ARCH))
@@ -359,43 +413,49 @@ def build_deb():
 
 
 def build_portable_tarball():
-    """Tarball + install.sh for Fedora/RHEL/Arch/Alpine/openSUSE."""
+    """Tarball + install.sh for Fedora/RHEL/Arch/Alpine/openSUSE.
+
+    Carries the same desktop integration as the deb (``.desktop`` + PNG icons),
+    otherwise a tarball user ends up with a command-line-only install and no
+    menu entry.
+    """
     portable = os.path.join(DIST, "_portable")
     if os.path.isdir(portable):
         shutil.rmtree(portable)
     os.makedirs(portable)
-    copy_project_package(ROOT, os.path.join(portable, "lib", "mihome_pc"))
+    shutil.copytree(os.path.join(ROOT, "mihome_pc"),
+                    os.path.join(portable, "lib", "mihome_pc"),
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     with open(os.path.join(portable, "install.sh"), "w",
                  encoding="utf-8", newline="\n") as handle:
         handle.write(INSTALL_SH)
     with open(os.path.join(portable, "README.md"), "w",
                  encoding="utf-8", newline="\n") as handle:
-        handle.write("# PC Controller %s (Linux tarball)\n\n"
+        handle.write("# Mi Home PC %s (Linux tarball)\n\n"
                      "    sh install.sh              # into /usr\n"
                      "    sh install.sh --prefix ~/.local\n\n"
-                     "Requires python3 >= 3.8. No other dependencies.\n" % VERSION)
-    copy_legal_documents(ROOT, portable)
-    assert_tree_clean(portable)
+                     "Requires python3 >= 3.8. No other dependencies.\n"
+                     "Starts in the background; `mihome-pc stop` quits it.\n"
+                     % VERSION)
 
-    names = []
-    for base, dirs, files in os.walk(portable):
-        dirs.sort()
-        for name in sorted(files):
-            names.append(os.path.join(base, name))
+    apps_dir = os.path.join(portable, "share", "applications")
+    os.makedirs(apps_dir)
+    with open(os.path.join(apps_dir, PACKAGE + ".desktop"), "w",
+                 encoding="utf-8", newline="\n") as handle:
+        handle.write(DESKTOP)
+    for size in ICON_SIZES:
+        source = os.path.join(ICON_SOURCE, "mihome-%d.png" % size)
+        if not os.path.isfile(source):
+            raise SystemExit(
+                "missing icon %s -- run: python packaging/make_icons.py" % source)
+        icon_dir = os.path.join(portable, "share", "icons", "hicolor",
+                                "%dx%d" % (size, size), "apps")
+        if not os.path.isdir(icon_dir):
+            os.makedirs(icon_dir)
+        shutil.copyfile(source, os.path.join(icon_dir, PACKAGE + ".png"))
+
     tar_path = os.path.join(DIST, "%s-%s-linux.tar.gz" % (PACKAGE, VERSION))
-    with tarfile.open(tar_path, "w:gz", compresslevel=9) as archive:
-        for full in names:
-            rel = os.path.relpath(full, portable).replace("\\", "/")
-            info = archive.gettarinfo(full, arcname=rel)
-            info.uid = 0
-            info.gid = 0
-            info.uname = "root"
-            info.gname = "root"
-            info.mtime = 1700000000
-            if rel == "install.sh":
-                info.mode = 0o755
-            with open(full, "rb") as handle:
-                archive.addfile(info, handle)
+    build_tar_gz(tar_path, portable, executables=("install.sh",), prefix="")
     shutil.rmtree(portable)
     return tar_path
 

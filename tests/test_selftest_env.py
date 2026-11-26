@@ -54,7 +54,29 @@ class TestEnvironmentReport(unittest.TestCase):
         self.assertEqual(sorted(names), sorted(["\u6570\u636e\u76ee\u5f55",
                                                 "\u51ed\u636e",
                                                 "spec \u7f13\u5b58",
-                                                "\u63d2\u4ef6\u6587\u6848"]))
+                                                "\u63d2\u4ef6\u6587\u6848",
+                                                "\u65e5\u5fd7",
+                                                "\u65e5\u5fd7\u7ea7\u522b",
+                                                "\u5d29\u6e83\u8bb0\u5f55"]))
+
+    def test_log_rows_point_at_the_data_dir(self):
+        with tempfile.TemporaryDirectory() as folder:
+            rows = cli.environment_report(data_path=folder)
+        details = {name: detail for name, _s, detail in rows}
+        self.assertIn(folder, details["\u65e5\u5fd7"])
+        self.assertEqual(status_of(rows, "\u5d29\u6e83\u8bb0\u5f55"), "ok")
+
+    def test_crash_files_are_reported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            logs_dir = os.path.join(folder, "logs")
+            os.makedirs(logs_dir)
+            with open(os.path.join(logs_dir, "crash-20260101-000000.log"), "w",
+                      encoding="utf-8") as handle:
+                handle.write("boom\n")
+            rows = cli.environment_report(data_path=folder)
+        self.assertEqual(status_of(rows, "\u5d29\u6e83\u8bb0\u5f55"), "warn")
+        details = {name: detail for name, _s, detail in rows}
+        self.assertIn("crash-20260101-000000.log", details["\u5d29\u6e83\u8bb0\u5f55"])
 
 
 if __name__ == "__main__":

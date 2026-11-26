@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PC 控制端</title>
+<title>米家</title>
 <link rel="icon" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css">
 <script>
@@ -29,9 +29,9 @@
   <!-- 左侧导航：桌面版固定，窄窗口折叠成顶栏 -->
   <aside class="sidebar">
     <div class="side-brand">
-      <img class="logo" src="/static/logo.png" alt="PC 控制端">
+      <img class="logo" src="/static/logo.png" alt="米家">
       <div class="side-brand-text">
-        <b>PC 控制端</b>
+        <b>米家</b>
         <span id="home-name">—</span>
       </div>
     </div>
@@ -198,15 +198,24 @@
 
 <div id="login-modal" class="modal" hidden>
   <div class="modal-box">
-    <h3 id="login-title">扫码登录</h3>
-    <p id="login-subtitle" class="meta">用米家 App 扫描二维码</p>
-    <div id="qr-wrap" class="qr-wrap"><img id="qr-image" alt="二维码" hidden><span id="qr-spinner">生成中…</span></div>
-    <div id="login-loading" class="login-loading" hidden><span class="loading-spinner" aria-hidden="true"></span></div>
-    <p id="login-msg" class="meta" role="status" aria-live="polite">—</p>
-    <p id="login-hint" class="meta hint">扫码确认后会自动切到账号数据，不需要重启程序，也不用手动刷新。</p>
+    <h3>扫码登录</h3>
+    <p class="meta">用米家 App 扫描二维码</p>
+    <div class="qr-wrap"><img id="qr-image" alt="二维码" hidden><span id="qr-spinner">生成中…</span></div>
+    <p id="login-msg" class="meta">—</p>
+    <p class="meta hint">扫码确认后会自动切到账号数据，不需要重启程序，也不用手动刷新。</p>
+    <button id="close-modal" class="ghost">关闭</button>
+  </div>
+</div>
+
+<div id="error-modal" class="modal" hidden>
+  <div class="modal-box error-box">
+    <h3 id="error-title">操作失败</h3>
+    <p id="error-message" class="error-message"></p>
+    <p id="error-hint" class="error-hint"></p>
+    <p id="error-meta" class="error-meta"></p>
     <div class="modal-actions">
-      <button id="login-retry" class="ghost" hidden>重试</button>
-      <button id="close-modal" class="ghost">关闭</button>
+      <button id="error-copy" class="ghost">复制诊断信息</button>
+      <button id="error-close" class="ghost">关闭</button>
     </div>
   </div>
 </div>

@@ -10,16 +10,18 @@ from ``serve`` in three ways that only matter on a desktop:
 * the data directory gets ``app.lock`` with the URL so both of the above work.
 """
 import contextlib
-import json
 import os
+import signal
 import threading
 import time
 import urllib.error
 import urllib.request
 
-__all__ = ["run", "read_lock", "running_instance"]
+from . import lockfile, logs
 
-LOCK_NAME = "app.lock"
+__all__ = ["run", "read_lock", "running_instance", "stop"]
+
+LOCK_NAME = lockfile.LOCK_NAME
 
 
 def _say(text):
@@ -34,32 +36,20 @@ def _data_dir():
 
 
 def _lock_path():
-    return os.path.join(_data_dir(), LOCK_NAME)
+    return lockfile.lock_path(_data_dir())
 
 
 def read_lock():
     """``{"pid": int, "url": str}`` from a previous run, or ``{}``."""
-    try:
-        with open(_lock_path(), encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return lockfile.read(_data_dir())
 
 
 def _write_lock(url):
-    path = _lock_path()
-    folder = os.path.dirname(path)
-    if folder and not os.path.isdir(folder):
-        os.makedirs(folder)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump({"pid": os.getpid(), "url": url, "since": int(time.time())},
-                  handle)
+    return lockfile.write(url, _data_dir())
 
 
-def _drop_lock():
-    with contextlib.suppress(OSError):
-        os.remove(_lock_path())
+def _drop_lock(force=False):
+    return lockfile.drop(_data_dir(), own=not force)
 
 
 def responds(url, timeout=0.6):
@@ -79,6 +69,49 @@ def running_instance():
     info = read_lock()
     url = info.get("url") or ""
     return url if responds(url) else ""
+
+
+def stop(wait_seconds=5.0):
+    """Stop the running instance recorded in ``app.lock``.
+
+    Exists because Linux has no tray (see README): without it the only way out
+    of ``serve``/``app`` was Ctrl+C in the owning terminal, and a detached
+    process had no exit at all.  Returns a process exit code.
+    """
+    info = read_lock()
+    pid = info.get("pid")
+    url = info.get("url") or ""
+    log = logs.get("app")
+    if not pid:
+        log.info("stop: no app.lock")
+        _say("\u6ca1\u6709\u53d1\u73b0\u8fd0\u884c\u4e2d\u7684\u5b9e\u4f8b\uff08%s \u4e0d\u5b58\u5728\uff09"
+             % _lock_path())
+        _say("\u63d0\u793a\uff1a\u542f\u52a8\u65f6\u4f1a\u5199\u5165 app.lock\uff1b\u82e5\u662f\u624b\u52a8 kill \u6389\u7684\uff0c"
+             "\u5148\u628a\u5b83\u5220\u6389")
+        return 1
+    if not responds(url):
+        _drop_lock(force=True)
+        log.info("stop: stale lock pid=%s url=%s, cleaned", pid, url)
+        _say("app.lock \u5df2\u8fc7\u671f\uff08PID %s \u4e0d\u5728\u54cd\u5e94\uff09\uff0c\u5df2\u6e05\u7406" % pid)
+        return 0
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+    except (OSError, ValueError) as exc:
+        log.error("stop: cannot signal pid=%s: %s", pid, exc)
+        _say("\u7ed3\u675f\u8fdb\u7a0b %s \u5931\u8d25\uff1a%s" % (pid, exc))
+        return 1
+    log.info("stop: signalled pid=%s url=%s", pid, url)
+    deadline = time.time() + max(0.5, wait_seconds)
+    while time.time() < deadline and responds(url):
+        time.sleep(0.2)
+    still_up = responds(url)
+    _drop_lock(force=True)
+    if still_up:
+        _say("\u8fdb\u7a0b %s \u4ecd\u5728\u54cd\u5e94\uff1a\u5b83\u53ef\u80fd\u4e0d\u662f\u672c\u7a0b\u5e8f"
+             "\uff0c\u8bf7\u624b\u52a8\u5904\u7406" % pid)
+        return 1
+    _say("\u5df2\u505c\u6b62\uff08PID %s\uff0c%s\uff09" % (pid, url))
+    return 0
 
 
 def _tray_ready_file():
@@ -101,10 +134,15 @@ def run(port=0, open_browser=True, use_tray=None):
     from .web import server as web_server
     from .web import launcher
     from . import tray as tray_mod
+    from . import logs
 
+    logs.setup()
+    logs.install_excepthook()
+    log = logs.get("app")
     existing = running_instance()
     if existing:
         _say("\u5df2\u7ecf\u5728\u8fd0\u884c: %s" % existing)
+        log.info("second instance reuses %s", existing)
         if open_browser:
             launcher.open_ui(existing)
         return 0
@@ -118,6 +156,8 @@ def run(port=0, open_browser=True, use_tray=None):
     host, bound = server.server_address[0], server.server_address[1]
     url = "http://%s:%d/" % (host, bound)
     _write_lock(url)
+    log.info("started %s provider=%s pid=%d log=%s", url,
+             "demo" if provider.demo else "cloud", os.getpid(), logs.log_path())
 
     thread = threading.Thread(target=server.serve_forever, name="http-server")
     thread.daemon = True
@@ -130,11 +170,13 @@ def run(port=0, open_browser=True, use_tray=None):
 
     if use_tray is None:
         use_tray = tray_mod.available()
+    log.info("tray=%s", "yes" if use_tray else "no (headless)")
     if not use_tray:
         _run_headless(url)
         server.shutdown()
         server.server_close()
         _drop_lock()
+        log.info("stopped (headless)")
         return 0
 
     from . import VERSION, tray_ps
@@ -146,7 +188,7 @@ def run(port=0, open_browser=True, use_tray=None):
             _run_powershell_tray(url, VERSION)
         elif tray_mod.probe(_icon_path()):
             tray_mod.Tray(
-                title="PC \u63a7\u5236\u7aef", icon_path=_icon_path(), url=url,
+                title="\u7c73\u5bb6 PC", icon_path=_icon_path(), url=url,
                 version=VERSION, open_url=launcher.open_ui,
                 open_folder=lambda: launcher.open_path(_data_dir())).run()
         else:
@@ -155,6 +197,7 @@ def run(port=0, open_browser=True, use_tray=None):
         server.shutdown()
         server.server_close()
         _drop_lock()
+        logs.get("app").info("stopped")
     return 0
 
 

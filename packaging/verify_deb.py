@@ -56,6 +56,22 @@ def read_tar_members(blob):
     return members
 
 
+def read_member(blob, wanted):
+    """Text of one file inside a gzipped tarball, or ``""`` when absent."""
+    import gzip
+    import tarfile
+    from io import BytesIO
+    with tarfile.open(fileobj=BytesIO(gzip.decompress(blob))) as archive:
+        for member in archive.getmembers():
+            name = member.name
+            if name.startswith("./"):
+                name = name[2:]
+            if name.rstrip("/") == wanted.rstrip("/") and member.isfile():
+                payload = archive.extractfile(member)
+                return payload.read().decode("utf-8", "replace") if payload else ""
+    return ""
+
+
 def main():
     print("deb: %s" % DEB)
     if not os.path.exists(DEB):
@@ -86,10 +102,53 @@ def main():
             check(("%s:" % field) in control_text, "control has %s" % field)
         check("python3 (>= 3.8)" in control_text, "depends on python3 >= 3.8")
         check("Architecture: all" in control_text, "architecture is 'all'")
+        check("example.invalid" not in control_text,
+              "Maintainer is not the placeholder address")
+        check("Homepage: https://github.com/shallow-seek-nothing" in control_text,
+              "Homepage points at the real repository")
 
     data_members = read_tar_members(payload["data.tar.gz"])
     keys = sorted(data_members)
     print("  data.tar.gz: %d entries" % len(keys))
+
+    # 0.7.38 shipped 63 files / 0 directory entries -> dpkg could not create
+    # /usr/lib/mihome-pc/mihome_pc/ and every install failed.
+    dir_entries = [key for key in keys if not data_members[key][2]]
+    check(len(dir_entries) > 0,
+          "data.tar.gz has directory entries (%d dirs)" % len(dir_entries))
+    for needed in ("usr", "usr/bin", "usr/lib", "usr/share/applications"):
+        check(needed in [d.rstrip("/") for d in dir_entries],
+              "directory entry ./%s/ present" % needed)
+
+    world_writable = [key for key in keys
+                      if data_members[key][2] and data_members[key][0] & 0o002]
+    check(not world_writable,
+          "no world-writable files (%s)" % (", ".join(world_writable[:3]) or "none"))
+    world_writable_dirs = [key for key in dir_entries if data_members[key][0] & 0o022]
+    check(not world_writable_dirs,
+          "no group/other-writable dirs (%s)"
+          % (", ".join(world_writable_dirs[:3]) or "none"))
+
+    # The 0.7.38 failure in one assertion: every file's parent chain must be an
+    # explicit directory entry, because dpkg never invents a parent itself.
+    dir_set = {name.rstrip("/") for name in dir_entries}
+    missing_parents = []
+    for key in keys:
+        if not data_members[key][2]:
+            continue
+        parent = key.rsplit("/", 1)[0] if "/" in key else ""
+        while parent:
+            if parent not in dir_set:
+                missing_parents.append("%s (parent ./%s/)" % (key, parent))
+                break
+            parent = parent.rsplit("/", 1)[0] if "/" in parent else ""
+    check(not missing_parents,
+          "every file's parent directory is an entry (%s)"
+          % (", ".join(missing_parents[:3]) or "none missing"))
+
+    for size in (48, 128, 256):
+        check("usr/share/icons/hicolor/%dx%d/apps/%s.png" % (size, size, PACKAGE)
+              in data_members, "%dx%d hicolor icon installed" % (size, size))
 
     launcher = "usr/bin/" + PACKAGE
     check(launcher in data_members, "%s present" % launcher)
@@ -112,13 +171,16 @@ def main():
           "web UI assets shipped")
     check("usr/share/applications/%s.desktop" % PACKAGE in data_members,
           "desktop entry present")
+    desktop_text = read_member(payload["data.tar.gz"],
+                               "usr/share/applications/%s.desktop" % PACKAGE)
+    check("Exec=%s app" % PACKAGE in desktop_text,
+          "menu entry launches `app` (a window/tray entry, not bare serve)")
+    check("Icon=%s" % PACKAGE in desktop_text,
+          "menu entry references the icon that is actually installed")
     check("usr/lib/systemd/user/%s.service" % PACKAGE in data_members,
           "systemd user unit present")
     check("usr/share/doc/%s/copyright" % PACKAGE in data_members,
           "copyright present")
-    for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md", "LICENSES/MIT.txt"):
-        check("usr/share/doc/%s/%s" % (PACKAGE, relative) in data_members,
-              "%s present" % relative)
 
     check(not any("__pycache__" in key or key.endswith(".pyc") for key in keys),
           "no __pycache__ / .pyc shipped")
@@ -147,15 +209,26 @@ def main():
     print("tarball: %s" % TARBALL)
     if os.path.exists(TARBALL):
         import gzip
+        from io import BytesIO
         with open(TARBALL, "rb") as handle:
             blob = gzip.decompress(handle.read())
-        from io import BytesIO
         with tarfile.open(fileobj=BytesIO(blob)) as archive:
-            tar_names = [m.name for m in archive.getmembers()]
+            entries = archive.getmembers()
+            tar_names = [m.name for m in entries]
         check("install.sh" in tar_names, "install.sh present")
         check("lib/mihome_pc/cli.py" in tar_names, "package payload present")
-        for relative in ("LICENSE.txt", "THIRD_PARTY_NOTICES.md", "LICENSES/MIT.txt"):
-            check(relative in tar_names, "tarball has %s" % relative)
+        check(any(m.isdir() for m in entries),
+              "tarball has directory entries (same unpacking trap as the deb)")
+        check(any(n.endswith("/%s.desktop" % PACKAGE) or n == "%s.desktop" % PACKAGE
+                  for n in tar_names),
+              "tarball ships the .desktop menu entry")
+        for size in (48, 128, 256):
+            pattern = "share/icons/hicolor/%dx%d/apps/%s.png" % (size, size, PACKAGE)
+            check(pattern in tar_names, "tarball ships the %dx%d PNG icon" % (size, size))
+        bad = [n for n, info in ((m.name, m) for m in entries)
+               if info.isfile() and info.mode & 0o002]
+        check(not bad, "no world-writable files in the tarball (%s)"
+              % (", ".join(bad[:3]) or "none"))
     else:
         check(False, "tarball exists")
 

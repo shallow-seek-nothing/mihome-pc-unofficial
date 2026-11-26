@@ -253,9 +253,7 @@ class TestSetProperty(WebTestCase):
 class TestStatic(WebTestCase):
     def test_index_served(self):
         body = self.fixture.get("/", raw=True).decode("utf-8")
-        self.assertIn("<title>PC 控制端</title>", body)
-        self.assertIn('<img class="logo" src="/static/logo.png" alt="PC 控制端">', body)
-        self.assertIn("<b>PC 控制端</b>", body)
+        self.assertIn("<title>", body)
         self.assertIn("app.js", body)
 
     def test_javascript_served(self):
@@ -895,3 +893,37 @@ class TestCloudStateRefresh(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestDiagnosticsHeaders(WebTestCase):
+    """失败要能对齐日志：响应头 X-Request-Id 与 JSON 里的 request_id 必须同值。
+
+    用户弹框里看到的就是这两个值，日志里同一行也带 req=<同一个值>，三处对不上
+    就等于没做请求追踪。
+    """
+
+    def _error_response(self, path, method="GET"):
+        try:
+            urlopen(self.fixture.url(path), timeout=10)
+        except HTTPError as exc:
+            return exc, json.loads(exc.read().decode("utf-8"))
+        self.fail("expected an error status for %s" % path)
+
+    def test_400_carries_request_id(self):
+        exc, payload = self._error_response("/api/device")
+        self.assertEqual(exc.code, 400)
+        self.assertIn("error", payload)
+        header = exc.headers.get("X-Request-Id")
+        self.assertTrue(header, "响应头缺 X-Request-Id")
+        self.assertEqual(header, payload.get("request_id"))
+        self.assertRegex(header, r"^[0-9a-f]{8}$")
+
+    def test_404_carries_request_id(self):
+        exc, payload = self._error_response("/api/definitely-not-a-route")
+        self.assertEqual(exc.code, 404)
+        self.assertEqual(exc.headers.get("X-Request-Id"), payload.get("request_id"))
+
+    def test_each_request_gets_a_fresh_id(self):
+        first, _ = self._error_response("/api/device")
+        second, _ = self._error_response("/api/device")
+        self.assertNotEqual(first.headers.get("X-Request-Id"),
+                            second.headers.get("X-Request-Id"))

@@ -39,14 +39,101 @@
     box._timer = window.setTimeout(function () { box.hidden = true; }, 2200);
   }
 
+  // 失败 = 弹「诊断框」而不是一闪而过的 toast。
+  // 一次失败要能回答四件事：干什么失败了、服务端说了什么、错误码/请求 id、
+  // 以及「怎么把它贴给开发者」。request_id 与日志里的 req= 是同一个值。
+  function apiError(response, payload, path) {
+    var error = new Error(
+      (payload && (payload.error || payload.message)) || ("HTTP " + response.status));
+    error.status = response.status;
+    error.path = path;
+    error.code = payload ? payload.code : undefined;
+    error.requestId = (payload && payload.request_id) ||
+      response.headers.get("X-Request-Id") || "";
+    error.detail = payload && payload.detail;
+    return error;
+  }
+
+  function diagnosticText(title, error) {
+    var lines = [
+      "操作：" + (title || "未知"),
+      "时间：" + new Date().toISOString(),
+      "错误：" + (error && error.message ? error.message : String(error)),
+      "接口：" + ((error && error.path) || "-"),
+      "状态：HTTP " + ((error && error.status) || "-"),
+      "错误码：" + ((error && error.code) !== undefined ? error.code : "-"),
+      "请求 ID：" + ((error && error.requestId) || "-"),
+      "版本：" + (document.documentElement.getAttribute("data-version") || "-")
+    ];
+    if (error && error.detail) { lines.push("详情：" + error.detail); }
+    lines.push("日志：数据目录 logs/mihome-pc.log（mihome-pc report 可打包）");
+    return lines.join("\n");
+  }
+
+  function showFailure(title, error, hint) {
+    var modal = $("error-modal");
+    if (!modal) { toast((title ? title + "：" : "") + (error && error.message)); return; }
+    $("error-title").textContent = title || "操作失败";
+    $("error-message").textContent = (error && error.message) || "未知错误";
+    $("error-meta").textContent = "请求 ID " + ((error && error.requestId) || "-") +
+      " · HTTP " + ((error && error.status) || "-") +
+      ((error && error.code !== undefined) ? " · code " + error.code : "") +
+      " · " + ((error && error.path) || "");
+    $("error-hint").textContent = hint || "把下面的诊断信息贴给开发者，或运行 mihome-pc report 打包日志。";
+    modal._text = diagnosticText(title, error);
+    modal.hidden = false;
+    var copy = $("error-copy");
+    if (copy) { copy.focus(); }
+  }
+
+  // 诊断框的按钮：复制 / 关闭 / 点遮罩关闭（Esc 由全局 keydown 处理）
+  (function bindErrorDialog() {
+    var modal = $("error-modal");
+    if (!modal) { return; }
+    var close = $("error-close");
+    if (close) {
+      close.addEventListener("click", function () { modal.hidden = true; });
+    }
+    var copy = $("error-copy");
+    if (copy) {
+      copy.addEventListener("click", function () {
+        var text = modal._text || "";
+        var done = function () { toast("诊断信息已复制"); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+        } else {
+          fallbackCopy(text, done);
+        }
+      });
+    }
+    modal.addEventListener("click", function (event) {
+      if (event.target === modal) { modal.hidden = true; }
+    });
+  })();
+
+  function fallbackCopy(text, done) {
+    // 非 https / 老浏览器没有 clipboard API 时的退路
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand("copy"); done(); } catch (e) { toast("复制失败，请手动选中"); }
+    document.body.removeChild(area);
+  }
+
   function api(path, options) {
     options = options || {};
     return fetch(path, options).then(function (response) {
       return response.json().then(function (payload) {
         if (!response.ok) {
-          throw new Error(payload && payload.error ? payload.error : response.status);
+          throw apiError(response, payload, path);
         }
         return payload;
+      }, function () {
+        if (!response.ok) { throw apiError(response, null, path); }
+        return null;
       });
     });
   }
@@ -142,6 +229,10 @@
     ]).then(function (res) {
       var status = res[0] || state.status || {};
       var meta = res[1] || {};
+      if (meta.version) {
+        // 诊断框里要带版本号：贴给开发者时不用再问"你装的哪版"
+        document.documentElement.setAttribute("data-version", meta.version);
+      }
       body.innerHTML = "";
       var rows = [
         ["\u767b\u5f55", status.demo ? "\u6f14\u793a\u6a21\u5f0f\uff08\u672a\u767b\u5f55\uff09"
@@ -229,7 +320,7 @@
       }).catch(function (error) {
         button.disabled = false;
         button.textContent = "\u9000\u51fa\u767b\u5f55";
-        toast("\u9000\u51fa\u5931\u8d25\uff1a" + error.message);
+        showFailure("\u9000\u51fa\u5931\u8d25\uff1a", error);
       });
     });
     body.appendChild(button);
@@ -440,7 +531,7 @@
       toast("\u5df2\u65b0\u5efa\u300c" + name + "\u300d");
       state.filterRoom = name;
       loadDevices().then(function () { renderHome(); });
-    }).catch(function (error) { toast("\u65b0\u5efa\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u65b0\u5efa\u5931\u8d25\uff1a", error); });
   }
 
   function deleteRoom() {
@@ -461,7 +552,7 @@
       toast("\u5df2\u5220\u9664\u300c" + room.name + "\u300d");
       state.filterRoom = "";
       loadDevices().then(function () { renderHome(); });
-    }).catch(function (error) { toast("\u5220\u9664\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u5220\u9664\u5931\u8d25\uff1a", error); });
   }
 
   function moveDeviceToRoom(did, roomId, select) {
@@ -476,7 +567,7 @@
       toast("\u5df2\u79fb\u5230\u65b0\u623f\u95f4");
       loadDevices().then(function () { openDevice(did); });
     }).catch(function (error) {
-      toast("\u79fb\u52a8\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u79fb\u52a8\u5931\u8d25\uff1a", error);
       select.disabled = false;
     });
   }
@@ -502,7 +593,7 @@
       } else {
         toast("\u91cd\u547d\u540d\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("\u91cd\u547d\u540d\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u91cd\u547d\u540d\u5931\u8d25\uff1a", error); });
   }
 
   // 家庭共享（只读）：谁有这台家里的权限
@@ -537,7 +628,7 @@
     setActiveNav("messages");
     setPage("\u6d88\u606f", "\u6b63\u5728\u8bfb\u53d6\u2026");
     api("/api/messages?refresh=1").then(renderMessages).catch(function (error) {
-      toast("\u6d88\u606f\u52a0\u8f7d\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u6d88\u606f\u52a0\u8f7d\u5931\u8d25\uff1a", error);
     });
   }
 
@@ -645,7 +736,7 @@
         button.disabled = false;
       }
     }).catch(function (error) {
-      toast("\u5220\u9664\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u5220\u9664\u5931\u8d25\uff1a", error);
       button.disabled = false;
     });
   }
@@ -660,13 +751,13 @@
       } else {
         toast("\u64cd\u4f5c\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("\u64cd\u4f5c\u5931\u8d25\uff1a" + error.message); })
+    }).catch(function (error) { showFailure("\u64cd\u4f5c\u5931\u8d25\uff1a", error); })
       .then(function () { if (button) { button.disabled = false; } });
   }
 
   function refreshMessages() {
     api("/api/messages?refresh=1").then(renderMessages).catch(function (error) {
-      toast("\u5237\u65b0\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u5237\u65b0\u5931\u8d25\uff1a", error);
     });
   }
 
@@ -682,7 +773,7 @@
       }
       toast("\u5df2\u6539\u540d\u4e3a\u300c" + name + "\u300d");
       loadDevices().then(function () { openDevice(info.did); });
-    }).catch(function (error) { toast("\u6539\u540d\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u6539\u540d\u5931\u8d25\uff1a", error); });
   }
 
   function renameHome() {
@@ -698,7 +789,7 @@
       }
       $("home-name").textContent = name;
       toast("\u5bb6\u5ead\u5df2\u6539\u540d");
-    }).catch(function (error) { toast("\u6539\u540d\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u6539\u540d\u5931\u8d25\uff1a", error); });
   }
 
   // 下次执行：精确、工作日估算、节假日不可算 三种情况要分开说
@@ -757,7 +848,7 @@
       state.scenes = payload;
       renderScenes(payload);
     }).catch(function (error) {
-      toast("\u573a\u666f\u52a0\u8f7d\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u573a\u666f\u52a0\u8f7d\u5931\u8d25\uff1a", error);
     });
   }
 
@@ -1131,7 +1222,7 @@
       } else {
         toast("\u521b\u5efa\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("\u521b\u5efa\u5931\u8d25\uff1a" + error.message); })
+    }).catch(function (error) { showFailure("\u521b\u5efa\u5931\u8d25\uff1a", error); })
       .then(function () { button.disabled = false; });
   }
 
@@ -1247,7 +1338,7 @@
       }
       toast("\u5df2\u8c03\u6574\u987a\u5e8f");
       refreshScenes();
-    }).catch(function (error) { toast("\u8c03\u6574\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u8c03\u6574\u5931\u8d25\uff1a", error); });
   }
 
   function moveScene(scene, direction, button) {
@@ -1259,7 +1350,7 @@
         }
         refreshScenes();
       })
-      .catch(function (error) { toast("\u8c03\u6574\u5931\u8d25\uff1a" + error.message); })
+      .catch(function (error) { showFailure("\u8c03\u6574\u5931\u8d25\uff1a", error); })
       .then(function () { button.disabled = false; });
   }
 
@@ -1284,7 +1375,7 @@
       } else {
         toast("\u4fdd\u5b58\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("\u4fdd\u5b58\u5931\u8d25\uff1a" + error.message); })
+    }).catch(function (error) { showFailure("\u4fdd\u5b58\u5931\u8d25\uff1a", error); })
       .then(function () { button.disabled = false; });
   }
 
@@ -1317,7 +1408,7 @@
       } else {
         toast("\u521b\u5efa\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("\u521b\u5efa\u5931\u8d25\uff1a" + error.message); })
+    }).catch(function (error) { showFailure("\u521b\u5efa\u5931\u8d25\uff1a", error); })
       .then(function () { button.disabled = false; });
   }
 
@@ -1358,7 +1449,7 @@
         } else {
           toast("\u4fdd\u5b58\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
         }
-      }).catch(function (error) { toast("\u4fdd\u5b58\u5931\u8d25\uff1a" + error.message); })
+      }).catch(function (error) { showFailure("\u4fdd\u5b58\u5931\u8d25\uff1a", error); })
         .then(function () { save.disabled = false; });
     });
     box.appendChild(save);
@@ -1370,7 +1461,7 @@
       postJSON("/api/timer/delete", { scene_id: item.id }).then(function (result) {
         if (result.ok) { toast("\u5df2\u5220\u9664"); refreshScenes(); }
         else { toast("\u5220\u9664\u5931\u8d25\uff1a" + (result.message || ("code " + result.code))); }
-      }).catch(function (error) { toast("\u5220\u9664\u5931\u8d25\uff1a" + error.message); })
+      }).catch(function (error) { showFailure("\u5220\u9664\u5931\u8d25\uff1a", error); })
         .then(function () { remove.disabled = false; });
     });
     box.appendChild(remove);
@@ -1402,7 +1493,7 @@
           toast("\u5207\u6362\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
         }
       })
-      .catch(function (error) { toast("\u5207\u6362\u5931\u8d25\uff1a" + error.message); })
+      .catch(function (error) { showFailure("\u5207\u6362\u5931\u8d25\uff1a", error); })
       .then(function () { button.disabled = false; });
   }
 
@@ -1416,7 +1507,7 @@
         toast("\u6267\u884c\u5931\u8d25\uff1a" + (result.message || ("code " + result.code)));
       }
     }).catch(function (error) {
-      toast("\u6267\u884c\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u6267\u884c\u5931\u8d25\uff1a", error);
     }).then(function () {
       window.setTimeout(function () {
         button.disabled = !scene.enabled;
@@ -1457,7 +1548,7 @@
           if (state.current) { openDevice(state.current); } else { renderHome(); }
         });
       }).catch(function (error) {
-        toast("\u64cd\u4f5c\u5931\u8d25\uff1a" + error.message);
+        showFailure("\u64cd\u4f5c\u5931\u8d25\uff1a", error);
         star.disabled = false;
       });
     });
@@ -1623,7 +1714,7 @@
       } else {
         toast("失败：" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("失败：" + error.message); });
+    }).catch(function (error) { showFailure("失败：", error); });
   }
 
   // ---------- 设备详情 ----------
@@ -1642,7 +1733,7 @@
       }
       startPolling();
     }).catch(function (error) {
-      toast("打开设备失败：" + error.message);
+      showFailure("打开设备失败：", error);
     });
   }
 
@@ -2152,7 +2243,7 @@
       }
     }).catch(function (error) {
       button.disabled = false;
-      toast("\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u5931\u8d25\uff1a", error);
     });
   }
 
@@ -2200,7 +2291,7 @@
       }
     }).catch(function (error) {
       button.disabled = false;
-      toast("\u5931\u8d25\uff1a" + error.message);
+      showFailure("\u5931\u8d25\uff1a", error);
     });
   }
 
@@ -2212,7 +2303,7 @@
       did: view.did, siid: ref.siid, aiid: ref.aiid
     }).then(function (result) {
       if (!result.ok) { toast("\u5931\u8d25\uff1a" + (result.message || ("code " + result.code))); }
-    }).catch(function (error) { toast("\u5931\u8d25\uff1a" + error.message); });
+    }).catch(function (error) { showFailure("\u5931\u8d25\uff1a", error); });
   }
 
   // inline 参数要用户填；引用参数不需要界面
@@ -2298,7 +2389,7 @@
       } else {
         toast("失败：" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("失败：" + error.message); });
+    }).catch(function (error) { showFailure("失败：", error); });
   }
 
   // ---------- 控件 ----------
@@ -2565,7 +2656,7 @@
       } else {
         toast("失败：" + (result.message || ("code " + result.code)));
       }
-    }).catch(function (error) { toast("失败：" + error.message); });
+    }).catch(function (error) { showFailure("失败：", error); });
   }
 
   // ---------- 轮询 ----------
@@ -2615,45 +2706,14 @@
   // ---------- 扫码登录 ----------
   function openLogin() {
     $("login-modal").hidden = false;
-    $("login-title").textContent = "扫码登录";
-    $("login-subtitle").textContent = "用米家 App 扫描二维码";
-    $("login-msg").className = "meta";
     $("login-msg").textContent = "正在获取二维码…";
-    $("qr-wrap").hidden = false;
     $("qr-image").hidden = true;
     $("qr-spinner").hidden = false;
-    $("login-loading").hidden = true;
-    $("login-hint").hidden = false;
-    $("login-retry").hidden = true;
     api("/api/qr").catch(function (error) {
       $("login-msg").textContent = "获取失败：" + error.message;
     });
     if (state.qrTimer) { window.clearInterval(state.qrTimer); }
     state.qrTimer = window.setInterval(pollLogin, 1500);
-  }
-
-  function showLoginLoading(message) {
-    $("login-modal").hidden = false;
-    $("login-title").textContent = "永远相信美好的事情即将发生";
-    $("login-subtitle").textContent = "正在连接账号并同步你的米家设备";
-    $("qr-wrap").hidden = true;
-    $("login-loading").hidden = false;
-    $("login-hint").hidden = true;
-    $("login-retry").hidden = true;
-    $("login-msg").className = "meta";
-    $("login-msg").textContent = message;
-  }
-
-  function showLoginError(message) {
-    $("login-modal").hidden = false;
-    $("login-title").textContent = "永远相信美好的事情即将发生";
-    $("login-subtitle").textContent = "设备数据还没有加载完成";
-    $("qr-wrap").hidden = true;
-    $("login-loading").hidden = true;
-    $("login-hint").hidden = true;
-    $("login-retry").hidden = false;
-    $("login-msg").className = "meta login-error";
-    $("login-msg").textContent = "加载失败：" + message;
   }
 
   function pollLogin() {
@@ -2670,7 +2730,8 @@
       if (payload.state === "ok") {
         window.clearInterval(state.qrTimer);
         state.qrTimer = null;
-        showLoginLoading("登录成功，正在读取账号数据…");
+        $("login-modal").hidden = true;
+        toast("登录成功，正在读取账号数据…");
         verifyLogin(0);
         return;
       }
@@ -2682,30 +2743,26 @@
     }).catch(function () { /* 忽略瞬时错误 */ });
   }
 
-  // 扫码确认后，先等 provider 切到账号，再等设备列表真正回来。
-  // 加载期间不关掉弹窗；失败必须给出原因和重试入口，不能只留一个空白首页。
+  // 扫码确认后，后端要把 provider 从演示切到账号数据（改的是 credentials.json）。
+  // 这里等 /api/status 真的变成「已登录」再重载界面，而不是盲等 600ms：
+  // 0.7.36 及以前「新装账号扫码后仍是演示模式」就是切换根本没发生，
+  // 页面看起来像登录成功后没反应，只能重启程序（issue #1）。
   function verifyLogin(attempt) {
-    showLoginLoading(attempt ? "仍在等待账号状态，正在重试…" : "登录成功，正在读取账号数据…");
     loadStatus().catch(function () { return null; }).then(function (status) {
       if (status && !status.demo) {
-        showLoginLoading("账号已连接，正在加载设备列表…");
-        boot().then(function (result) {
-          if (result && result.devicesError) {
-            showLoginError(result.devicesError.message || String(result.devicesError));
-            return;
-          }
-          $("login-modal").hidden = true;
-          toast("设备数据已更新");
-        });
+        boot();
         return;
       }
       if (attempt < 5) {
         window.setTimeout(function () { verifyLogin(attempt + 1); }, 600);
         return;
       }
-      showLoginError(status && status.credentials_error
+      // 后端确实写成功了、只是界面没跟上：给一条能自救的提示，不要让人重启
+      $("login-modal").hidden = false;
+      $("login-msg").textContent = status && status.credentials_error
         ? status.credentials_error
-        : "登录状态尚未生效，请重试；若持续失败，请重新扫码");
+        : "登录已确认，但数据还没切换：按 F5 刷新页面即可";
+      toast("账号数据加载较慢，已提示刷新");
     });
   }
 
@@ -2721,16 +2778,14 @@
   function boot() {
     stopPolling();
     state.current = null;
-    var devicesError = null;
     // 分开兜底：/api/status 成功但设备列表失败（云端慢、被墙、token 过期）
     // 时，页面仍要完成启动 —— 否则连深链接和账号面板都打不开。
-    return loadStatus().catch(function (error) {
-      toast("状态读取失败：" + error.message);
+    loadStatus().catch(function (error) {
+      showFailure("状态读取失败：", error);
       return null;
     }).then(function () {
       return loadDevices().catch(function (error) {
-        devicesError = error;
-        toast("设备列表加载失败：" + error.message);
+        showFailure("设备列表加载失败：", error);
         state.devices = [];
         state.rooms = [];
         state.home = "";
@@ -2739,11 +2794,9 @@
     }).then(function () {
       refreshBadges();
       startUnreadPolling();
-      openFromLocation();
-      return { devicesError: devicesError };
+      return openFromLocation();
     }).catch(function (error) {
-      toast("加载失败：" + error.message);
-      return { devicesError: error };
+      showFailure("加载失败：", error);
     });
   }
 
@@ -2868,7 +2921,6 @@
       if (event.target === $("status-modal")) { $("status-modal").hidden = true; }
     });
     $("close-modal").addEventListener("click", closeLogin);
-    $("login-retry").addEventListener("click", function () { verifyLogin(0); });
     $("login-modal").addEventListener("click", function (event) {
       if (event.target === $("login-modal")) { closeLogin(); }
     });
@@ -2948,7 +3000,7 @@
 
   // 关掉最上层的弹窗；没有可关的就返回 false（交给调用方决定下一步）
   function closeTopLayer() {
-    var modals = ["login-modal", "timer-modal", "status-modal",
+    var modals = ["error-modal", "login-modal", "timer-modal", "status-modal",
                   "account-modal"];
     for (var i = 0; i < modals.length; i += 1) {
       var modal = $(modals[i]);
