@@ -101,21 +101,29 @@ def request_scope(rid=None):
 # 脱敏
 # --------------------------------------------------------------------------
 
-# 形如 "serviceToken":"xxxx" / serviceToken=xxxx 的给打码；Bearer 也顺手处理。
+# 明确标成密钥的字段，不论长短都不能原样落盘。长名放在前面，避免别名被
+# token / serviceToken 抢先匹配；yetAnotherServiceToken 是云端实际会发送的别名。
 _SECRET_KEYS = (
-    "serviceToken", "passToken", "ssecurity", "signature",
-    "cookie", "password", "passwd", "token", "uid_token",
+    "yetAnotherServiceToken", "serviceToken", "passToken", "ssecurity",
+    "sessionSecurity", "accessToken", "refreshToken", "authToken",
+    "sessionToken", "access_token", "refresh_token", "auth_token",
+    "session_token", "signature", "cookie", "password", "passwd",
+    "uid_token", "token", "loginTicket", "ticket",
 )
-_KEYS_RE = "|".join(_SECRET_KEYS)
-# JSON："serviceToken": "xxxxx"
-_JSON_RE = re.compile(r'(?i)("(?:%s)"\s*:\s*")([^"]{6,})(")' % _KEYS_RE)
-# form / 查询串：serviceToken=xxxxx（HttpOnly cookie 里的 userId=42 这类不受影响）
-_KV_RE = re.compile(r'(?i)\b((?:%s)=)([^\s&",;\)\]}]{6,})' % _KEYS_RE)
-# Authorization: Bearer xxxxx
-_BEARER_RE = re.compile(r"(?i)\b(Bearer\s+)([A-Za-z0-9._\-]{16,})")
-# 32 位以上的十六进制串（米家 token 是 32 位）——只有在上面那些键附近才打码，
-# 否则会误伤 md5 / sha 这类无辜的十六进制。
-_HEXISH = re.compile(r"^[0-9a-fA-F]{16,}$")
+_KEYS_RE = "|".join(sorted(_SECRET_KEYS, key=len, reverse=True))
+# JSON 与 Python repr：双引号、单引号都接受；值可以是短字符串。
+_JSON_RE = re.compile(
+    r'(?i)(["\'](?:%s)["\']\s*:\s*["\'])([^"\']{1,})(["\'])' % _KEYS_RE)
+# 嵌在异常 / repr 里的转义 JSON：{\"passToken\":\"xxxxx\"}。
+_ESCAPED_JSON_RE = re.compile(
+    r'(?i)(\\["\'](?:%s)\\["\']\s*:\s*\\["\'])(.*?)(\\["\'])' % _KEYS_RE)
+# JSON / Python repr 里没有引号的值，例如 {"token": 123456}。
+_JSON_BARE_RE = re.compile(
+    r'(?i)(["\'](?:%s)["\']\s*:\s*)(?!["\'])([^\s,}\]]{1,})' % _KEYS_RE)
+# form / 查询串 / Cookie：serviceToken=xxxxx。userId、错误码和 did 不受影响。
+_KV_RE = re.compile(r"(?i)\b((?:%s)=)([^\s&\",;\)\]}']{1,})" % _KEYS_RE)
+# Authorization: Bearer xxxxx；Base64 的 + / = 也必须一起吃掉。
+_BEARER_RE = re.compile(r"(?i)\b(Bearer[ \t]+)([^\s&\",;\)\]}']{1,})")
 
 
 def mask_value(value):
@@ -131,9 +139,10 @@ def _already_masked(value):
 
 
 def redact_text(text):
-    """把一段文本里能识别出的密钥换成 ``mask_value`` 的形式。
+    """把文本里能识别出的密钥换成 ``mask_value``，同时保留排障上下文。
 
-    顺序固定为 JSON → 键值对 → Bearer，三条互不重叠，不会二次包裹。
+    覆盖 JSON、Python repr、嵌套转义 JSON、form / URL 查询串、Cookie 与
+    Bearer。显式密钥字段没有“安全长度”：短密码同样必须打码。
     """
     if not text:
         return text
@@ -148,14 +157,13 @@ def redact_text(text):
         value = match.group(2)
         if _already_masked(value):
             return match.group(0)
-        if not _HEXISH.match(value) and len(value) < 16:
-            return match.group(0)          # 短值大概率不是密钥，别动
         return "%s%s" % (match.group(1), mask_value(value))
 
+    result = _ESCAPED_JSON_RE.sub(_json_sub, result)
     result = _JSON_RE.sub(_json_sub, result)
+    result = _JSON_BARE_RE.sub(_kv_sub, result)
     result = _KV_RE.sub(_kv_sub, result)
-    result = _BEARER_RE.sub(
-        lambda match: "%s%s" % (match.group(1), mask_value(match.group(2))), result)
+    result = _BEARER_RE.sub(_kv_sub, result)
     return result
 
 
@@ -339,34 +347,47 @@ def _credentials_present(directory):
 
 
 def install_excepthook():
-    """未捕获异常落到 ``logs/crash-<时间>.log``（pythonw 下否则什么都看不到）。"""
-    previous = sys.excepthook
+    """未捕获异常落到崩溃档；文件与终端输出都必须先脱敏。"""
 
     def _hook(exc_type, exc_value, exc_tb):
         try:
             text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        except Exception:                                    # pragma: no cover
+            text = "%s: %s\n" % (getattr(exc_type, "__name__", "Error"), exc_value)
+        safe_text = redact_text(text)
+        try:
             directory = log_dir()
             if not os.path.isdir(directory):
                 os.makedirs(directory)
             stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             path = os.path.join(directory, "crash-%s.log" % stamp)
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write("\n".join(environment_lines()))
+                handle.write(redact_text("\n".join(environment_lines())))
                 handle.write("\n\n")
-                handle.write(text)
+                handle.write(safe_text)
             get("crash").error("uncaught %s: %s (详情 %s)",
                                exc_type.__name__, exc_value, path)
         except Exception:                                    # pragma: no cover
             pass
-        previous(exc_type, exc_value, exc_tb)
+        try:
+            # 不再把原始异常交给上一个 hook：stderr 若被重定向成文件，那会绕过
+            # 文件 handler 的 Formatter，留下一份完全没脱敏的 traceback。
+            if sys.stderr:
+                sys.stderr.write(safe_text)
+                if safe_text and not safe_text.endswith("\n"):
+                    sys.stderr.write("\n")
+                sys.stderr.flush()
+        except Exception:                                    # pragma: no cover
+            pass
 
     sys.excepthook = _hook
 
 
 def report(data_dir=None, target=None):
-    """把日志 + 环境信息打成 zip（**不含凭据、不含设备 token**）。
+    """把脱敏后的日志 + 环境信息打成 zip。
 
-    用户报 bug 时只要发这一个文件：里面有版本、系统、日志滚动档、崩溃档。
+    打包时再过滤一次，而不是直接 ``archive.write``：旧版崩溃档、滚动档或
+    手工放进 logs 目录的日志也可能含密钥，不能把历史泄漏原样转发出去。
     """
     directory = log_dir(data_dir)
     if target is None:
@@ -374,13 +395,17 @@ def report(data_dir=None, target=None):
         base = data_dir if data_dir is not None else os.path.dirname(directory)
         target = os.path.join(base, "mihome-pc-report-%s.zip" % stamp)
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("environment.txt", "\n".join(environment_lines()) + "\n")
+        environment = redact_text("\n".join(environment_lines()) + "\n")
+        archive.writestr("environment.txt", environment)
         if os.path.isdir(directory):
             for name in sorted(os.listdir(directory)):
                 full = os.path.join(directory, name)
                 if os.path.isfile(full) and (name.endswith(".log") or ".log." in name):
                     with contextlib.suppress(OSError):
-                        archive.write(full, "logs/" + name)
+                        with open(full, "rb") as handle:
+                            raw = handle.read()
+                        text = raw.decode("utf-8", "replace")
+                        archive.writestr("logs/" + name, redact_text(text))
     return target
 
 

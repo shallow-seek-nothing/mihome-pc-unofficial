@@ -92,6 +92,19 @@ def _redirect():
     sys.stderr = handle
 
 
+def _print_safe_exc():
+    exc_type = sys.exc_info()[0]
+    try:
+        from mihome_pc.logs import redact_text
+        text = redact_text(traceback.format_exc())
+    except Exception:
+        # 脱敏器本身没加载成功时宁可少记，也不能把原始异常写进日志。
+        text = "startup error: %s (traceback withheld: redactor unavailable)\n" % (
+            getattr(exc_type, "__name__", "Error"),)
+    if sys.stderr:
+        sys.stderr.write(text)
+
+
 def main():
     _redirect()
     if HERE not in sys.path:
@@ -99,7 +112,7 @@ def main():
     try:
         from mihome_pc.cli import main as cli_main
     except Exception:
-        traceback.print_exc()
+        _print_safe_exc()
         return 1
     try:
         # "app" = server + notification-area icon (right-click to quit).
@@ -107,7 +120,7 @@ def main():
     except SystemExit as exc:
         return exc.code or 0
     except Exception:
-        traceback.print_exc()
+        _print_safe_exc()
         return 1
 
 

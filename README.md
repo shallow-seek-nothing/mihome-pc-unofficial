@@ -16,7 +16,7 @@
 Windows（Windows 7 SP1 起）与 Linux 上的米家设备控制端：**纯标准库 Python + 手写网页 UI**，
 不需要装任何第三方 Python 包，也不依赖 Electron。项目聚焦官方客户端未覆盖的 PC 使用场景。
 
-> 当前版本 **0.7.40**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
+> 当前版本 **0.7.41**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
 > [docs/04-功能对照.md](docs/04-功能对照.md)，逆向笔记在 [docs/reverse/](docs/reverse/)。
 
 ---
@@ -51,15 +51,15 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家设备控制端：**纯标�
 
 ## 下载与安装
 
-**最新版从这里下载** —— [Releases · v0.7.40](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.40)
+**最新版从这里下载** —— [Releases · v0.7.41](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.41)
 
 | 平台 | 文件 | 怎么用 |
 |---|---|---|
-| **Windows 64 位** | `pc-controller-0.7.40-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
-| **Windows 32 位** | `pc-controller-0.7.40-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
+| **Windows 64 位** | `pc-controller-0.7.41-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| **Windows 32 位** | `pc-controller-0.7.41-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
 | Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
-| **Debian / Ubuntu（deb）** | `pc-controller_0.7.40_all.deb` | `sudo apt install ./pc-controller_0.7.40_all.deb`，菜单里出现「PC 控制端 / PC Controller」 |
-| **其他 Linux（tarball）** | `pc-controller-0.7.40-linux.tar.gz` | `tar xzf …` 后 `sh install.sh`（或 `--prefix ~/.local`），带 `.desktop` 与多尺寸图标 |
+| **Debian / Ubuntu（deb）** | `pc-controller_0.7.41_all.deb` | `sudo apt install ./pc-controller_0.7.41_all.deb`，菜单里出现「PC 控制端 / PC Controller」 |
+| **其他 Linux（tarball）** | `pc-controller-0.7.41-linux.tar.gz` | `tar xzf …` 后 `sh install.sh`（或 `--prefix ~/.local`），带 `.desktop` 与多尺寸图标 |
 
 > **32 位支持**：当前版本继续支持 32 位 Windows，并提供独立 win32 便携包；后续更新会尽量延续
 > 32 位构建与基础兼容性验证。若运行环境或关键依赖变化影响支持范围，将在发布说明中明确注明。
@@ -148,6 +148,8 @@ python -m mihome_pc selftest --env   # 附带数据目录/凭据/spec/插件文�
   `mihome-pc selftest --env` 会列出日志路径、当前级别、崩溃记录数
 * 密钥（`serviceToken` / `passToken` / 设备 token / Cookie / Bearer）在写盘前统一打码成
   `a1b2…(32)`；**错误码与 did 不脱敏**，否则没法排障
+* 崩溃回溯、stderr、Windows 启动异常走同一脱敏规则；`report` 打包旧日志时再过滤一次，
+  真实 token 别名、单引号字典、转义 JSON、短密码与登录 ticket 也有对抗回归覆盖
 
 细节见 [docs/05-日志与排障.md](docs/05-日志与排障.md)。
 

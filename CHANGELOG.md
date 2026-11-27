@@ -5,6 +5,42 @@
 
 ---
 
+## 0.7.41 — 2026-11-27
+
+日志脱敏安全修复版。0.7.40 的普通文件日志虽然经过 Formatter 脱敏，但崩溃文件和
+Windows 启动 traceback 存在原始写入旁路，`report` 也会原样打包历史日志。
+**建议所有 0.7.40 用户升级到本版。**
+
+### 1. 关闭崩溃、终端与诊断包旁路
+
+* `install_excepthook()` 在写 `crash-*.log` 前先脱敏，stderr 也不再向上一个 hook 输出原始异常；
+  避免终端重定向形成第二份未过滤日志。
+* `mihome-pc report` 不再直接 `archive.write`：当前日志、滚动档、历史崩溃档在写入 zip 前
+  统一再过滤一次，旧版本已经留下的明文不会被打包转发。
+* `environment.txt` 同样经过脱敏；凭据文件仍不进入诊断包。
+
+### 2. 补齐密钥字段与文本格式
+
+* 新增实际使用的 `yetAnotherServiceToken`、`sessionSecurity`、登录 `ticket`，以及常见
+  access / refresh / auth / session token 别名。
+* 覆盖双引号 JSON、单引号 Python repr、嵌套转义 JSON、form / URL 查询串和 Cookie。
+* 显式密钥字段不再因“太短”而跳过；Bearer 的 Base64 `+ / =` 部分也完整打码。
+* 错误码、did、`userId` 与接口路径继续保留，不影响排障。
+
+### 3. Windows 启动链同步修复
+
+win64 与 win32 的 `_boot.pyw` 不再裸调 `traceback.print_exc()`，统一经 `redact_text()`。
+如果脱敏器本身无法加载，只记录异常类型，不回写可能含密钥的原始 traceback。
+
+### 4. 验证
+
+新增 9 条对抗回归：首轮 8 条在旧代码上有 7 条失败，修复后全部通过；两个 Windows
+启动模板也做了实际执行测试。Python 3.8 全量 603 条单测通过（3 条按环境跳过），
+`verify_deb` / `check_release` 全过；win32 / win64 包内解释器与飞牛 NAS 的 deb / tarball
+均用金丝雀密钥实测日志、崩溃档和诊断包，未发现测试密钥明文。
+
+---
+
 ## 0.7.40 — 2026-11-26
 
 把「日志与排障」做成一层基础设施。起因很直接：0.7.38 的 deb 装不上，
