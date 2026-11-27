@@ -23,9 +23,9 @@ import random
 import socket
 import string
 import time
-from http.cookiejar import CookieJar
+from http.cookiejar import Cookie, CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 SAFE_PREFIX = "&&&START&&&"
@@ -106,6 +106,59 @@ def _json_from_body(text):
         raise LoginError("account response is not JSON: %s" % exc)
 
 
+def _seed_cookies(transport, url, values):
+    """Put explicit session values into the CookieJar for this request host."""
+    jar = getattr(transport, "cookies", None)
+    if jar is None:
+        return
+    parsed = urlparse(url)
+    domain = parsed.hostname or "account.xiaomi.com"
+    for name, value in values.items():
+        if value is None:
+            continue
+        jar.set_cookie(Cookie(
+            version=0, name=name, value=str(value), port=None, port_specified=False,
+            domain=domain, domain_specified=False, domain_initial_dot=False,
+            path="/", path_specified=True, secure=parsed.scheme == "https",
+            expires=None, discard=True, comment=None, comment_url=None,
+            rest={}, rfc2109=False,
+        ))
+
+
+def _session_headers(transport, url, values):
+    """Let CookieJar combine explicit values with server-set session cookies.
+
+    A manually assigned Cookie header makes ``CookieJar.add_cookie_header()``
+    return without adding anything. Real transports therefore get no Cookie
+    header here; the processor adds the complete, domain-correct value instead.
+    The header fallback keeps lightweight injected test transports compatible.
+    """
+    raw = "; ".join("%s=%s" % (name, value) for name, value in values.items()
+                    if value is not None)
+    if getattr(transport, "cookies", None) is None:
+        return {"Cookie": raw}
+    _seed_cookies(transport, url, values)
+    return None
+
+
+def _cookie_from_jar(transport, name, *urls):
+    """Read a cookie visible to a request URL, including redirect leftovers."""
+    jar = getattr(transport, "cookies", None)
+    if jar is None:
+        return None
+    for url in urls:
+        if not url:
+            continue
+        request = Request(url)
+        jar.add_cookie_header(request)
+        raw = request.get_header("Cookie") or ""
+        for part in raw.split(";"):
+            key, separator, value = part.strip().partition("=")
+            if separator and key == name and value:
+                return value
+    return None
+
+
 class Transport:
     """Minimal cookie-aware HTTP GET/POST.
 
@@ -184,6 +237,9 @@ class QrLogin:
         self.lp_url = None
         self.login_url = None
 
+    def _base_cookies(self):
+        return {"deviceId": self.device_id, "uLocale": self.locale}
+
     # -- step 1 --------------------------------------------------------
     def request_qr(self):
         """Ask for a fresh QR code. Returns the three URLs."""
@@ -192,9 +248,8 @@ class QrLogin:
             "_qrsize": self.qr_size,
             "_dc": int(time.time() * 1000),
         })
-        response = self.transport.get(url, headers={
-            "Cookie": "deviceId=%s; uLocale=%s" % (self.device_id, self.locale),
-        })
+        response = self.transport.get(
+            url, headers=_session_headers(self.transport, url, self._base_cookies()))
         payload = response.json()
         code = payload.get("code")
         if code != 0:
@@ -218,13 +273,14 @@ class QrLogin:
         if not self.lp_url:
             raise LoginError("request_qr() must be called first")
         deadline = time.time() + timeout
-        cookie = "deviceId=%s; uLocale=%s" % (self.device_id, self.locale)
         last_error = None
         while time.time() < deadline:
             remaining = max(1, int(min(poll_timeout, deadline - time.time())))
             try:
                 response = self.transport.get(
-                    self.lp_url, headers={"Cookie": cookie}, timeout=remaining)
+                    self.lp_url, timeout=remaining,
+                    headers=_session_headers(
+                        self.transport, self.lp_url, self._base_cookies()))
             except TransientNetworkError as exc:
                 last_error = exc                     # normal for a long poll
                 continue
@@ -258,23 +314,56 @@ class QrLogin:
         if not ssecurity:
             raise LoginError("login response has no ssecurity")
 
-        service_token = self.exchange_service_token(location)
+        user_id = str(payload.get("userId") or _cookie_from_jar(
+            self.transport, "userId", ACCOUNT_HOST, self.lp_url) or "")
+        c_user_id = str(payload.get("cUserId") or response.header("cUserId")
+                        or _cookie_from_jar(
+                            self.transport, "cUserId", ACCOUNT_HOST, self.lp_url) or "")
+        pass_token = (payload.get("passToken") or response.header("passToken")
+                      or _cookie_from_jar(
+                          self.transport, "passToken", ACCOUNT_HOST, self.lp_url) or "")
+        identity = {
+            "deviceId": self.device_id, "pass_o": "", "uLocale": self.locale,
+        }
+        if user_id:
+            identity["userId"] = user_id
+        if c_user_id:
+            identity["cUserId"] = c_user_id
+        if pass_token:
+            identity["passToken"] = pass_token
+        identity_headers = _session_headers(self.transport, ACCOUNT_HOST, identity)
+        try:
+            service_token = self.exchange_service_token(location)
+        except LoginError:
+            # Some sessions reject the location returned by the long poll. Renew
+            # it once through serviceLogin with the now-authenticated CookieJar;
+            # a normal direct exchange still needs only one request.
+            url = ACCOUNT_HOST + "/pass/serviceLogin?" + urlencode({
+                "_json": "true", "sid": self.sid, "_locale": self.locale,
+            })
+            renewed = self.transport.get(url, headers=identity_headers).json()
+            if renewed.get("code") != 0:
+                raise LoginError("post-login serviceLogin failed: code=%s" % renewed.get("code"))
+            location = renewed.get("location")
+            if not location:
+                raise LoginError("post-login serviceLogin has no location")
+            ssecurity = renewed.get("ssecurity") or ssecurity
+            service_token = self.exchange_service_token(location)
         return Credentials(
-            user_id=str(payload.get("userId") or ""),
-            c_user_id=str(payload.get("cUserId") or response.header("cUserId") or ""),
+            user_id=user_id,
+            c_user_id=c_user_id,
             service_token=service_token,
             ssecurity=ssecurity,
-            pass_token=payload.get("passToken") or response.header("passToken") or "",
+            pass_token=pass_token,
             device_id=self.device_id,
         )
 
     # -- step 3: trade the login ticket for a serviceToken --------------
     def exchange_service_token(self, location):
-        """``GET <location>`` answers ``Set-Cookie: serviceToken=...``."""
+        """Exchange the ticket, including cookies set by a 302 response."""
         url = location if "://" in location else ACCOUNT_HOST + location
-        response = self.transport.get(url, headers={
-            "Cookie": "deviceId=%s; uLocale=%s" % (self.device_id, self.locale),
-        })
+        response = self.transport.get(
+            url, headers=_session_headers(self.transport, url, self._base_cookies()))
         token = _cookie_value(response, "serviceToken")
         if token:
             return token
@@ -284,6 +373,11 @@ class QrLogin:
         except LoginError:
             payload = {}
         token = payload.get("serviceToken")
+        if token:
+            return token
+        # urllib follows redirects, hiding an intermediate Set-Cookie from the
+        # final Response. HTTPCookieProcessor has already retained that cookie.
+        token = _cookie_from_jar(self.transport, "serviceToken", response.url, url)
         if token:
             return token
         raise LoginError("login response carried no serviceToken")
@@ -328,18 +422,21 @@ def refresh_service_token(credentials, transport=None, sid=SID_MIHOME,
     the passToken is no longer good.
     """
     transport = transport or Transport()
-    cookie = "deviceId=%s; pass_o=; uLocale=%s" % (credentials.device_id, locale)
+    cookie_values = {
+        "deviceId": credentials.device_id, "pass_o": "", "uLocale": locale,
+    }
     if credentials.user_id:
-        cookie += "; userId=" + credentials.user_id
+        cookie_values["userId"] = credentials.user_id
     if credentials.c_user_id:
-        cookie += "; cUserId=" + credentials.c_user_id
+        cookie_values["cUserId"] = credentials.c_user_id
     if credentials.pass_token:
-        cookie += "; passToken=" + credentials.pass_token
+        cookie_values["passToken"] = credentials.pass_token
 
     url = ACCOUNT_HOST + "/pass/serviceLogin?" + urlencode({
         "_json": "true", "sid": sid, "_locale": locale,
     })
-    response = transport.get(url, headers={"Cookie": cookie})
+    response = transport.get(
+        url, headers=_session_headers(transport, url, cookie_values))
     payload = response.json()
     if payload.get("code") != 0:
         raise NotAuthorized("passToken rejected (code=%s); scan a new QR code"
@@ -348,8 +445,10 @@ def refresh_service_token(credentials, transport=None, sid=SID_MIHOME,
     if not location:
         raise NotAuthorized("no location in serviceLogin response")
     target = location if "://" in location else ACCOUNT_HOST + location
-    final = transport.get(target, headers={"Cookie": cookie})
-    token = _cookie_value(final, "serviceToken")
+    final = transport.get(
+        target, headers=_session_headers(transport, target, cookie_values))
+    token = (_cookie_value(final, "serviceToken") or _cookie_from_jar(
+        transport, "serviceToken", final.url, target))
     if not token:
         raise NotAuthorized("no serviceToken issued for the stored passToken")
 

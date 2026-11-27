@@ -21,6 +21,11 @@ KNOWN_LIMITS = (
 
 # 每个版本在说明顶部写「为什么升级」；没有条目的版本就跳过这段。
 HIGHLIGHTS = {
+    "0.7.42": (
+        "修复扫码登录 Cookie 合并：deviceId/uLocale 不再阻断 CookieJar 中的 passToken、userId 等会话 Cookie。",
+        "支持读取 302 中间响应写入 CookieJar 的 serviceToken；旧 location 换取失败时通过 serviceLogin 回退一次。",
+        "真实扫码、凭据保存与刷新、刷新前后设备列表加载均已实测通过。",
+    ),
     "0.7.41": (
         "日志脱敏安全修复：崩溃文件、stderr 与 Windows 启动回溯统一过滤，report 对旧日志二次脱敏。",
         "补齐真实 token 别名、登录 ticket、短密钥、单引号/转义 JSON 与 Bearer 变体；建议 0.7.40 用户升级。",

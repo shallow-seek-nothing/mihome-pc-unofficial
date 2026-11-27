@@ -5,6 +5,41 @@
 
 ---
 
+## 0.7.42 — 2026-11-27
+
+修复扫码登录的 Cookie 合并与换票链路。0.7.41 在请求里手动设置 `Cookie`，会阻止
+`CookieJar` 补充服务端已经保存的会话 Cookie；自动跟随 302 后，最终响应也看不到中间
+响应的 `Set-Cookie`。本版覆盖首次扫码和已有凭据刷新两条路径。
+
+### 1. 会话 Cookie 改由 CookieJar 合并
+
+* `deviceId` / `uLocale` 等显式 Cookie 先按请求主机写入 CookieJar，真实请求不再手动设置
+  `Cookie` 头，由 `HTTPCookieProcessor` 合并 `passToken` / `userId` 等服务端 Cookie。
+* `passToken`、`userId`、`cUserId` 在扫码结果缺失时可以从 CookieJar 恢复。
+* 轻量注入 transport 仍保留原来的请求头回退，避免破坏离线测试与既有调用约定。
+
+### 2. 读取 302 中间响应留下的 serviceToken
+
+* 最终响应的 `Set-Cookie` 与 JSON body 都没有 `serviceToken` 时，继续检查 CookieJar 中
+  对最终 URL 或原始换票 URL 可见的 Cookie。
+* `exchange_service_token()` 与 `refresh_service_token()` 同步修复，避免只有扫码入口可用。
+
+### 3. 旧 location 换取失败后的有限回退
+
+* 长轮询给出的旧 `location` 换取失败时，利用当前登录态重新请求一次
+  `/pass/serviceLogin?sid=xiaomiio&_json=true`，再用新的 `location` / `ssecurity` 换取。
+* 只回退一次；正常直接换取成功时不增加请求。该回退有离线回归覆盖，但真实扫码日志没有
+  单独记录本次是否命中，不把评论区反馈写成已复现的服务端事实。
+
+### 4. 验证
+
+新增 4 条 Cookie / STS / 回退专项测试；最初 3 条复现测试在旧代码上全部触发问题，修复后
+全部通过。Python 3.8 全量 607 条单测通过（3 条按环境跳过），原有登录与安全测试全过。
+使用隔离数据目录完成真实扫码、换票、凭据保存与重新读取；已有凭据刷新也成功。刷新前后
+均成功读取 14 台设备，全程未执行设备控制或其他写操作，未覆盖电脑上的原有登录凭据。
+
+---
+
 ## 0.7.41 — 2026-11-27
 
 日志脱敏安全修复版。0.7.40 的普通文件日志虽然经过 Formatter 脱敏，但崩溃文件和

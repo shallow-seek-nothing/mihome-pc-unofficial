@@ -16,7 +16,7 @@
 Windows（Windows 7 SP1 起）与 Linux 上的米家设备控制端：**纯标准库 Python + 手写网页 UI**，
 不需要装任何第三方 Python 包，也不依赖 Electron。项目聚焦官方客户端未覆盖的 PC 使用场景。
 
-> 当前版本 **0.7.41**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
+> 当前版本 **0.7.42**。变更明细见 [CHANGELOG.md](CHANGELOG.md)，功能对照见
 > [docs/04-功能对照.md](docs/04-功能对照.md)，逆向笔记在 [docs/reverse/](docs/reverse/)。
 
 ---
@@ -51,15 +51,15 @@ Windows（Windows 7 SP1 起）与 Linux 上的米家设备控制端：**纯标�
 
 ## 下载与安装
 
-**最新版从这里下载** —— [Releases · v0.7.41](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.41)
+**最新版从这里下载** —— [Releases · v0.7.42](https://github.com/shallow-seek-nothing/mihome-pc-unofficial/releases/tag/v0.7.42)
 
 | 平台 | 文件 | 怎么用 |
 |---|---|---|
-| **Windows 64 位** | `pc-controller-0.7.41-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
-| **Windows 32 位** | `pc-controller-0.7.41-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
+| **Windows 64 位** | `pc-controller-0.7.42-portable-win64.zip` | 解压后双击 `mihome.vbs`；目录里有 `使用须知.txt`，不需要装 Python |
+| **Windows 32 位** | `pc-controller-0.7.42-portable-win32.zip` | 同样解压即用；Win7 前置条件见下方实测说明 |
 | Windows（安装版） | 解压 zip 后运行 `install.ps1` | 装到 `%LOCALAPPDATA%\Programs\MiHomePC`，桌面自动放快捷方式；`-Quiet` 静默 |
-| **Debian / Ubuntu（deb）** | `pc-controller_0.7.41_all.deb` | `sudo apt install ./pc-controller_0.7.41_all.deb`，菜单里出现「PC 控制端 / PC Controller」 |
-| **其他 Linux（tarball）** | `pc-controller-0.7.41-linux.tar.gz` | `tar xzf …` 后 `sh install.sh`（或 `--prefix ~/.local`），带 `.desktop` 与多尺寸图标 |
+| **Debian / Ubuntu（deb）** | `pc-controller_0.7.42_all.deb` | `sudo apt install ./pc-controller_0.7.42_all.deb`，菜单里出现「PC 控制端 / PC Controller」 |
+| **其他 Linux（tarball）** | `pc-controller-0.7.42-linux.tar.gz` | `tar xzf …` 后 `sh install.sh`（或 `--prefix ~/.local`），带 `.desktop` 与多尺寸图标 |
 
 > **32 位支持**：当前版本继续支持 32 位 Windows，并提供独立 win32 便携包；后续更新会尽量延续
 > 32 位构建与基础兼容性验证。若运行环境或关键依赖变化影响支持范围，将在发布说明中明确注明。
@@ -109,6 +109,8 @@ python -m mihome_pc serve        # 未登录时是演示数据
   不吊销 `passToken`，手机上的米家 App 不受影响；退出后立刻回到演示模式。
 * 0.7.36 及以前的**新装用户**扫码后仍停在演示模式（issue #1：进程只在启动时读一次凭据），
   那条「手动刷新一次」的土办法其实只有重启才起作用。0.7.37 已修，升级即可。
+* 0.7.42 修复会话 Cookie 未合并、302 中间响应的 `serviceToken` 未读取，以及旧 `location`
+  换取失败后的回退；真实扫码、凭据刷新和设备列表加载均已验证。
 * 凭据文件损坏时界面会显示「凭据文件无法读取，请重新扫码登录」，不再是白屏或整页报错。
 
 ## 命令行
